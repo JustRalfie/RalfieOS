@@ -4,7 +4,14 @@ RalfieOS 0.1 targets the CC:Tweaked CraftOS Lua API. It contains platform infras
 
 ## Install and start
 
-Place this repository on a ComputerCraft computer, change into the repository root, then run `shell.run("install.lua", "src/ralfie")`. The installer resolves the source through `shell.resolve`, copies the manifest-listed framework files to `/ralfie` through a staging directory, and preserves the current installation until activation succeeds.
+On a new ComputerCraft computer, download the bootstrap installer and run it:
+
+```lua
+wget https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/install.lua install
+install
+```
+
+The bootstrap fetches the package manifest and every manifest-listed runtime file from `https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/`. It stages the files in `/ralfie.staging`, verifies every expected file, and activates only the complete staged package. A failed download leaves the current `/ralfie` installation untouched.
 
 Start the installed framework with:
 
@@ -31,4 +38,4 @@ An application directory beneath `/ralfie/apps` must contain `manifest.lua` retu
 
 ## Update source contract
 
-The updater currently accepts an absolute local source directory containing `manifest.lua`. A manifest declares `version`, `api_version`, and every relative file path to copy. Paths may not be absolute or contain `..`. It checks the destination drive has enough staging space when the filesystem exposes capacity information. If an interruption leaves `/ralfie.previous` while `/ralfie` is absent, restore it with `move /ralfie.previous /ralfie` before starting again. Remote transport and remote trust verification are intentionally not implemented yet.
+Run `dofile("/ralfie/update.lua")` to update an installed system from the same GitHub source. Both install paths retain `/ralfie-data`, check free space when available, and preserve rollback data until staged activation succeeds. If an interruption leaves `/ralfie.previous` while `/ralfie` is absent, restore it with `move /ralfie.previous /ralfie` before starting again. Downloads are verified for completeness and staged byte writes, but GitHub branch contents are not cryptographically authenticated.

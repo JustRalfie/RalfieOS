@@ -14,8 +14,10 @@ return {
     "services/platform/configuration.lua",
     "services/platform/logging.lua",
     "services/platform/updating.lua",
+    "services/platform/remote_update.lua",
     "interfaces/terminal/ui.lua",
     "start.lua",
+    "update.lua",
     "manifest.lua",
   },
 }
