@@ -19,8 +19,10 @@ local function mockTurtle(options)
     items = options.items or { [1] = 12, [15] = 10, [16] = 8 }, moves = 0, digs = 0,
     torch_placements = 0, dropped = {}, forward_failures = options.forward_failures or 0,
     permanent_failure = options.permanent_failure, falling_blocks = options.falling_blocks or 0,
+    torch_place_failures = options.torch_place_failures or 0, heading = 0, x = 0, y = 0, z = 0,
+    torch_positions = {},
   }
-  local function move()
+  local function move(direction)
     state.moves = state.moves + 1
     if state.permanent_failure then return false, "blocked" end
     if state.forward_failures > 0 then
@@ -28,18 +30,44 @@ local function mockTurtle(options)
       return false, "blocked"
     end
     state.fuel = state.fuel - 1
+    if direction == "up" then
+      state.y = state.y + 1
+    elseif direction == "down" then
+      state.y = state.y - 1
+    elseif state.heading == 0 then
+      state.x = state.x + 1
+    elseif state.heading == 1 then
+      state.z = state.z + 1
+    elseif state.heading == 2 then
+      state.x = state.x - 1
+    else
+      state.z = state.z - 1
+    end
+    return true
+  end
+  local function placeTorch()
+    local before = { x = state.x, y = state.y, z = state.z, heading = state.heading }
+    if state.torch_place_failures > 0 then
+      state.torch_place_failures = state.torch_place_failures - 1
+      table.insert(state.torch_positions, { before = before, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = false })
+      return false, "Cannot place block here"
+    end
+    if not state.items[state.selected] or state.items[state.selected] == 0 then return false, "no item" end
+    state.items[state.selected] = state.items[state.selected] - 1
+    state.torch_placements = state.torch_placements + 1
+    table.insert(state.torch_positions, { before = before, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = true })
     return true
   end
   local turtle = {
-    forward = move, up = move, down = move,
-    turnLeft = function() return true end, turnRight = function() return true end,
+    forward = function() return move("forward") end, up = function() return move("up") end, down = function() return move("down") end,
+    turnLeft = function() state.heading = (state.heading + 3) % 4; return true end,
+    turnRight = function() state.heading = (state.heading + 1) % 4; return true end,
     inspect = function() return state.falling_blocks > 0 end,
     inspectUp = function() return false end, inspectDown = function() return false end,
     dig = function() state.digs = state.digs + 1; if state.falling_blocks > 0 then state.falling_blocks = state.falling_blocks - 1 end; return true end,
     digUp = function() state.digs = state.digs + 1; return true end,
     digDown = function() state.digs = state.digs + 1; return true end,
-    place = function() return true end, placeUp = function() return true end,
-    placeDown = function() if state.items[state.selected] and state.items[state.selected] > 0 then state.items[state.selected] = state.items[state.selected] - 1; state.torch_placements = state.torch_placements + 1; return true end return false, "no item" end,
+    place = placeTorch, placeUp = function() return true end, placeDown = function() return true end,
     select = function(slot) state.selected = slot; return true end,
     getSelectedSlot = function() return state.selected end,
     getItemCount = function(slot) return state.items[slot] or 0 end,
@@ -64,20 +92,30 @@ local function mockTurtle(options)
   return turtle, state
 end
 
-local function context(turtle, config)
-  local ui = { heading = function() end, status = function() end, prompt = function() return "1" end }
-  local logger = { info = function() end, warn = function() end, debug = function() end }
+local function context(turtle, events)
+  events = events or { warnings = 0, logs = {} }
+  local ui = {
+    heading = function() end,
+    status = function(_, label) if label == "WARN" then events.warnings = events.warnings + 1 end end,
+    prompt = function() return "1" end,
+  }
+  local logger = {
+    info = function(_, event) table.insert(events.logs, event) end,
+    warn = function(_, event) table.insert(events.logs, event) end,
+    debug = function() end,
+  }
   return { turtle = turtle, module_loader = moduleLoader(), ui = ui, logger = logger, configuration = { get = function(_, _, fallback) return fallback end } }
 end
 
 local function run(options)
   local turtle, state = mockTurtle(options)
-  local outcome = Miner.start(context(turtle), {
+  local events = { warnings = 0, logs = {} }
+  local outcome = Miner.start(context(turtle, events), {
     distance = options.distance or 1, torch_interval = options.torch_interval or 10,
     torch_slot = 16, fuel_slot = 15, safety_margin = options.safety_margin or 20,
     movement_retries = options.movement_retries or 3,
   })
-  return outcome, state
+  return outcome, state, events
 end
 
 local successful, successfulState = run({ distance = 2, items = { [1] = 12, [15] = 10, [16] = 8 } })
@@ -92,6 +130,18 @@ local torches, torchState = run({ distance = 3, torch_interval = 1, items = { [1
 assert(torches.ok)
 assert(torchState.torch_placements == 3)
 assert(torchState.items[16] == 2)
+assert(torchState.heading == 0)
+for _, placement in ipairs(torchState.torch_positions) do
+  assert(placement.placed and placement.before.heading == 3)
+  assert(placement.before.x == placement.after.x and placement.before.y == placement.after.y and placement.before.z == placement.after.z)
+end
+
+local missingWall, missingWallState, missingWallEvents = run({ distance = 1, torch_interval = 1, torch_place_failures = 1, items = { [15] = 10, [16] = 2 } })
+assert(missingWall.ok)
+assert(missingWallState.torch_placements == 0)
+assert(missingWallState.heading == 0)
+assert(missingWallEvents.warnings == 1)
+assert(missingWallEvents.logs[#missingWallEvents.logs] == "miner.completed")
 
 local insufficient, insufficientState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [15] = 1, [16] = 2 } })
 assert(not insufficient.ok and insufficient.error.code == "FUEL.INSUFFICIENT")

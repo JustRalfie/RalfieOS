@@ -77,8 +77,17 @@ function Miner.start(context, options)
   end
 
   local function placeTorch()
-    local placed = inventory:withSlot(torchSlot, function() return adapter:place("down") end)
-    if not placed.ok then return placed end
+    local originalHeading = navigation:position().heading
+    local faced = navigation:face((originalHeading + 3) % 4)
+    if not faced.ok then return faced end
+    local placed = inventory:withSlot(torchSlot, function() return adapter:place("forward") end)
+    local restored = navigation:face(originalHeading)
+    if not restored.ok then return restored end
+    if not placed.ok then
+      context.logger:warn("miner.torch_failed", { position = navigation:position(), reason = placed.error.message })
+      context.ui:status("WARN", "Torch could not be placed; continuing.", false)
+      return resultModule.ok(false)
+    end
     context.logger:info("miner.torch_placed", { position = navigation:position() })
     return placed
   end
