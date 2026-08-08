@@ -41,6 +41,7 @@ function Miner.start(context, options)
   local movementRetries = options.movement_retries or config:get("miner.movement_retries", 3)
   local maxVeinSize = options.max_vein_size or config:get("miner.max_vein_size", 64)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
+  local excludedOreIds = options.excluded_ore_ids or config:get("miner.excluded_ore_ids", {})
   local inventoryFreeSlotMargin = options.inventory_free_slot_margin or config:get("miner.inventory_free_slot_margin", 1)
   if torchSlot == fuelSlot or torchInterval < 1 then
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Torch and fuel slots must differ and torch interval must be positive")
@@ -63,7 +64,7 @@ function Miner.start(context, options)
   })
   local ore = Ore.new({
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui,
-    max_size = maxVeinSize, additional_ids = additionalOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
+    max_size = maxVeinSize, additional_ids = additionalOreIds, excluded_ids = excludedOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
     should_stop = function() return unloader:isNearlyFull() end,
   })
 

@@ -14,7 +14,7 @@ local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
 local function run(blocks, options)
   options = options or {}
   local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, blocks = {}, events = {} }
-  for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = block.name end
+  for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
     if direction == "up" then return state.x, state.y + 1, state.z end
@@ -24,8 +24,8 @@ local function run(blocks, options)
   end
   local function inspect(direction)
     local x, y, z = target(direction)
-    local name = state.blocks[key(x, y, z)]
-    if name then return true, { name = name } end
+    local data = state.blocks[key(x, y, z)]
+    if data then return true, data end
     return false
   end
   local function move(direction)
@@ -65,6 +65,7 @@ local function run(blocks, options)
   local ore = Ore.new({
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = Result, logger = logger, ui = ui,
     max_size = options.max_size or 64, movement_retries = options.movement_retries or 3,
+    additional_ids = options.additional_ids, excluded_ids = options.excluded_ids,
   })
   local outcome = ore:mineExposed()
   return outcome, state, navigation
@@ -127,24 +128,61 @@ local limited, limitedState, limitedNavigation = run({
   { x = 3, y = 0, z = 0, name = "minecraft:nether_gold_ore" },
 }, { max_size = 2 })
 assert(limited.ok and limited.value.collected == 2 and limited.value.limit_reached)
-assert(limitedState.blocks[key(3, 0, 0)] == "minecraft:nether_gold_ore")
+assert(limitedState.blocks[key(3, 0, 0)].name == "minecraft:nether_gold_ore")
 restored(limitedState, limitedNavigation)
 
 local full, fullState, fullNavigation = run({
   { x = 1, y = 0, z = 0, name = "minecraft:nether_quartz_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:nether_quartz_ore" },
 }, { full_after_digs = 1 })
 assert(full.ok and full.value.collected == 1 and full.value.inventory_full)
-assert(fullState.blocks[key(2, 0, 0)] == "minecraft:nether_quartz_ore")
+assert(fullState.blocks[key(2, 0, 0)].name == "minecraft:nether_quartz_ore")
 restored(fullState, fullNavigation)
 
 local ignored, ignoredState, ignoredNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:stone" } })
 assert(ignored.ok and ignored.value.collected == 0)
-assert(ignoredState.blocks[key(1, 0, 0)] == "minecraft:stone")
+assert(ignoredState.blocks[key(1, 0, 0)].name == "minecraft:stone")
 restored(ignoredState, ignoredNavigation)
 
 local debris, debrisState, debrisNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:ancient_debris" } })
 assert(debris.ok and debris.value.collected == 1)
 restored(debrisState, debrisNavigation)
+
+for _, name in ipairs({
+  "alltheores:uranium_ore", "alltheores:fluorite_ore", "alltheores:osmium_ore", "alltheores:platinum_ore",
+  "allthemodium:allthemodium_ore", "allthemodium:vibranium_ore", "allthemodium:unobtainium_ore",
+}) do
+  local atmOre, atmState, atmNavigation = run({ { x = 1, y = 0, z = 0, name = name } })
+  assert(atmOre.ok and atmOre.value.collected == 1)
+  restored(atmState, atmNavigation)
+end
+
+local tagged, taggedState, taggedNavigation = run({
+  { x = 1, y = 0, z = 0, name = "modded:deep_mineral", tags = { ["c:ores/uranium"] = true } },
+})
+assert(tagged.ok and tagged.value.collected == 1)
+restored(taggedState, taggedNavigation)
+
+for _, tags in ipairs({ { ["c:ores"] = true }, { "neoforge:ores" }, { ["forge:ores"] = true } }) do
+  local namespaceOre, namespaceState, namespaceNavigation = run({ { x = 1, y = 0, z = 0, name = "modded:tagged_mineral", tags = tags } })
+  assert(namespaceOre.ok and namespaceOre.value.collected == 1)
+  restored(namespaceState, namespaceNavigation)
+end
+
+local excluded, excludedState, excludedNavigation = run({
+  { x = 1, y = 0, z = 0, name = "alltheores:uranium_ore", tags = { ["neoforge:ores"] = true } },
+}, { excluded_ids = { "alltheores:uranium_ore" } })
+assert(excluded.ok and excluded.value.collected == 0)
+assert(excludedState.blocks[key(1, 0, 0)].name == "alltheores:uranium_ore")
+restored(excludedState, excludedNavigation)
+
+local additional, additionalState, additionalNavigation = run({ { x = 1, y = 0, z = 0, name = "modded:vein_block" } }, { additional_ids = { "modded:vein_block" } })
+assert(additional.ok and additional.value.collected == 1)
+restored(additionalState, additionalNavigation)
+
+local unrelated, unrelatedState, unrelatedNavigation = run({ { x = 1, y = 0, z = 0, name = "modded:oreberry_bush" } })
+assert(unrelated.ok and unrelated.value.collected == 0)
+assert(unrelatedState.blocks[key(1, 0, 0)].name == "modded:oreberry_bush")
+restored(unrelatedState, unrelatedNavigation)
 
 local chaseFailure, chaseFailureState, chaseFailureNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { fail_from_move = 1 })
 assert(not chaseFailure.ok)

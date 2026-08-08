@@ -32,17 +32,39 @@ function Ore.new(options)
   local maxSize = options.max_size or 64
   local retries = options.movement_retries or 3
   local additional = options.additional_ids or {}
+  local excluded = options.excluded_ids or {}
   local matcher = options.matcher
   local shouldStop = options.should_stop
   local ore = {}
 
   assert(type(maxSize) == "number" and maxSize >= 1 and maxSize % 1 == 0, "ore maximum size must be a positive whole number")
 
+  local function contains(ids, name)
+    for _, id in ipairs(ids) do if name == id then return true end end
+    return false
+  end
+
+  local function hasOreTag(tags)
+    if type(tags) ~= "table" then return false end
+    for tag, value in pairs(tags) do
+      local name = type(tag) == "string" and tag or value
+      if type(name) == "string" and (
+        name == "c:ores" or name:sub(1, 7) == "c:ores/" or
+        name == "neoforge:ores" or name:sub(1, 14) == "neoforge:ores/" or
+        name == "forge:ores" or name:sub(1, 11) == "forge:ores/"
+      ) then return true end
+    end
+    return false
+  end
+
   local function matches(data)
     if type(data) ~= "table" or type(data.name) ~= "string" then return false end
-    if matcher then return matcher(data.name, data) == true end
-    if data.name:find("_ore", 1, true) or data.name == "minecraft:ancient_debris" then return true end
-    for _, id in ipairs(additional) do if data.name == id then return true end end
+    if contains(excluded, data.name) then return false end
+    if contains(additional, data.name) then return true end
+    if hasOreTag(data.tags) then return true end
+    if matcher and matcher(data.name, data) == true then return true end
+    if data.name:find("_ore", 1, true) then return true end
+    if data.name == "minecraft:ancient_debris" then return true end
     return false
   end
 
