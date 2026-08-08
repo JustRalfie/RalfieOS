@@ -4,6 +4,7 @@ return {
   launchers = {
     { source = "launchers/ralf.lua", target = "/ralf.lua" },
     { source = "launchers/RalfieOS.lua", target = "/RalfieOS.lua" },
+    { source = "launchers/dashboard_demo.lua", target = "/dashboard-demo.lua" },
   },
   files = {
     "core/result.lua",
@@ -31,14 +32,17 @@ return {
     "services/operations/fluid.lua",
     "interfaces/terminal/ui.lua",
     "interfaces/terminal/menu.lua",
+    "interfaces/terminal/miner_dashboard.lua",
     "apps/miner/manifest.lua",
     "apps/miner/miner.lua",
     "start.lua",
     "update.lua",
     "miner.lua",
     "ralfie.lua",
+    "dashboard_demo.lua",
     "launchers/ralf.lua",
     "launchers/RalfieOS.lua",
+    "launchers/dashboard_demo.lua",
     "manifest.lua",
   },
 }
