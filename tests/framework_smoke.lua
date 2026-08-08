@@ -125,6 +125,7 @@ assert(fs.exists("/ralfie-data/logs/ralfie.log"))
 local Result = dofile("src/ralfie/core/result.lua")
 local Fsx = dofile("src/ralfie/lib/fsx.lua")
 local Updating = dofile("src/ralfie/services/platform/updating.lua")
+local RemoteUpdate = dofile("src/ralfie/services/platform/remote_update.lua")
 local manifest = { version = "test", api_version = 1, files = { "main.lua" } }
 local updater = Updating.new({
   filesystem = fs, fsx = Fsx, result = Result,
@@ -135,6 +136,33 @@ Fsx.write(fs, "/installed/main.lua", "return 'old'")
 local updated = updater:apply("/source", "/installed")
 assert(updated.ok, updated.error and updated.error.message)
 assert(Fsx.read(fs, "/installed/main.lua") == "return 'updated'")
+
+local remoteManifest = "return { version = 'remote-test', api_version = 1, files = { 'payload.lua' } }"
+local remoteFiles = {
+  ["https://example.invalid/src/ralfie/manifest.lua"] = remoteManifest,
+  ["https://example.invalid/src/ralfie/payload.lua"] = "return 'remote'",
+  ["https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/src/ralfie/manifest.lua"] = remoteManifest,
+  ["https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/src/ralfie/payload.lua"] = "return 'remote'",
+}
+local fakeHttp = {
+  get = function(url)
+    local content = remoteFiles[url]
+    if not content then return nil, "not found" end
+    return { readAll = function() return content end, close = function() end }
+  end,
+}
+local remote = RemoteUpdate.new({ filesystem = fs, fsx = Fsx, result = Result, updater = updater, http = fakeHttp, load = load })
+local remotelyInstalled = remote:install("https://example.invalid/", "/remote-installed")
+assert(remotelyInstalled.ok, remotelyInstalled.error and remotelyInstalled.error.message)
+assert(Fsx.read(fs, "/remote-installed/payload.lua") == "return 'remote'")
+Fsx.write(fs, "/remote-failure/keep.lua", "return 'keep'")
+local failedRemote = remote:install("https://missing.invalid/", "/remote-failure")
+assert(not failedRemote.ok)
+assert(Fsx.read(fs, "/remote-failure/keep.lua") == "return 'keep'")
+_G.http = fakeHttp
+local bootstrapInstalled = dofile("install.lua")
+assert(bootstrapInstalled == true)
+assert(Fsx.read(fs, "/ralfie/payload.lua") == "return 'remote'")
 fs.move("/installed", "/installed.previous")
 local recoveredUpdate = updater:recover("/installed")
 assert(recoveredUpdate.ok, recoveredUpdate.error and recoveredUpdate.error.message)

@@ -101,6 +101,31 @@ function Updating.new(options)
     return self.result.ok(true)
   end
 
+  function service:activateStaged(targetRoot, stagingRoot, version)
+    if not isAbsolute(targetRoot) or not isAbsolute(stagingRoot) then
+      return self.result.fail("UPDATE.RELATIVE_TARGET", "Update target and staging paths must be absolute")
+    end
+    if not self.filesystem.exists(stagingRoot) then
+      return self.result.fail("UPDATE.STAGING_MISSING", "The staged update is missing")
+    end
+    local backupRoot = targetRoot .. ".previous"
+    if self.filesystem.exists(backupRoot) then self.filesystem.delete(backupRoot) end
+    if self.filesystem.exists(targetRoot) then
+      local moved, moveErr = pcall(self.filesystem.move, targetRoot, backupRoot)
+      if not moved then
+        return self.result.fail("UPDATE.BACKUP_FAILED", "Unable to preserve installed version", { context = { detail = moveErr } })
+      end
+    end
+    local activated, activateErr = pcall(self.filesystem.move, stagingRoot, targetRoot)
+    if not activated then
+      if self.filesystem.exists(backupRoot) then pcall(self.filesystem.move, backupRoot, targetRoot) end
+      return self.result.fail("UPDATE.ACTIVATION_FAILED", "Unable to activate update", { context = { detail = activateErr } })
+    end
+    if self.filesystem.exists(backupRoot) then self.filesystem.delete(backupRoot) end
+    if self.logger then self.logger:info("update.applied", { version = version, target = targetRoot }) end
+    return self.result.ok({ version = version, target = targetRoot })
+  end
+
   function service:apply(sourceRoot, targetRoot)
     if not isAbsolute(targetRoot) then
       return self.result.fail("UPDATE.RELATIVE_TARGET", "Update target paths must be absolute")
@@ -113,9 +138,7 @@ function Updating.new(options)
     local space = self:checkSpace(sourceRoot, targetRoot, manifest)
     if not space.ok then return space end
     local stagingRoot = targetRoot .. ".staging"
-    local backupRoot = targetRoot .. ".previous"
     if self.filesystem.exists(stagingRoot) then self.filesystem.delete(stagingRoot) end
-    if self.filesystem.exists(backupRoot) then self.filesystem.delete(backupRoot) end
     local created, createErr = self.fsx.ensureDir(self.filesystem, stagingRoot)
     if not created then
       return self.result.fail("UPDATE.STAGING_FAILED", "Unable to create update staging area", { context = { detail = createErr } })
@@ -135,21 +158,7 @@ function Updating.new(options)
         return self.result.fail("UPDATE.VERIFY_FAILED", "Staged file did not match source", { context = { path = relativePath } })
       end
     end
-    if self.filesystem.exists(targetRoot) then
-      local moved, moveErr = pcall(self.filesystem.move, targetRoot, backupRoot)
-      if not moved then
-        self.filesystem.delete(stagingRoot)
-        return self.result.fail("UPDATE.BACKUP_FAILED", "Unable to preserve installed version", { context = { detail = moveErr } })
-      end
-    end
-    local activated, activateErr = pcall(self.filesystem.move, stagingRoot, targetRoot)
-    if not activated then
-      if self.filesystem.exists(backupRoot) then self.filesystem.move(backupRoot, targetRoot) end
-      return self.result.fail("UPDATE.ACTIVATION_FAILED", "Unable to activate update", { context = { detail = activateErr } })
-    end
-    if self.filesystem.exists(backupRoot) then self.filesystem.delete(backupRoot) end
-    if self.logger then self.logger:info("update.applied", { version = manifest.version, target = targetRoot }) end
-    return self.result.ok({ version = manifest.version, target = targetRoot })
+    return self:activateStaged(targetRoot, stagingRoot, manifest.version)
   end
 
   return service
