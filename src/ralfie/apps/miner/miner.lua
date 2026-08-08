@@ -78,7 +78,7 @@ function Miner.start(context, options)
 
   local function placeTorch()
     local originalHeading = navigation:position().heading
-    local faced = navigation:face((originalHeading + 3) % 4)
+    local faced = navigation:face((originalHeading + 2) % 4)
     if not faced.ok then return faced end
     local placed = inventory:withSlot(torchSlot, function() return adapter:place("forward") end)
     local restored = navigation:face(originalHeading)

@@ -19,7 +19,7 @@ local function mockTurtle(options)
     items = options.items or { [1] = 12, [15] = 10, [16] = 8 }, moves = 0, digs = 0,
     torch_placements = 0, dropped = {}, forward_failures = options.forward_failures or 0,
     permanent_failure = options.permanent_failure, falling_blocks = options.falling_blocks or 0,
-    torch_place_failures = options.torch_place_failures or 0, heading = 0, x = 0, y = 0, z = 0,
+    torch_place_failures = options.torch_place_failures or 0, heading = 0, turns = 0, x = 0, y = 0, z = 0,
     torch_positions = {},
   }
   local function move(direction)
@@ -47,21 +47,26 @@ local function mockTurtle(options)
   end
   local function placeTorch()
     local before = { x = state.x, y = state.y, z = state.z, heading = state.heading }
+    local target = { x = before.x, y = before.y, z = before.z }
+    if state.heading == 0 then target.x = target.x + 1
+    elseif state.heading == 1 then target.z = target.z + 1
+    elseif state.heading == 2 then target.x = target.x - 1
+    else target.z = target.z - 1 end
     if state.torch_place_failures > 0 then
       state.torch_place_failures = state.torch_place_failures - 1
-      table.insert(state.torch_positions, { before = before, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = false })
+      table.insert(state.torch_positions, { before = before, target = target, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = false })
       return false, "Cannot place block here"
     end
     if not state.items[state.selected] or state.items[state.selected] == 0 then return false, "no item" end
     state.items[state.selected] = state.items[state.selected] - 1
     state.torch_placements = state.torch_placements + 1
-    table.insert(state.torch_positions, { before = before, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = true })
+    table.insert(state.torch_positions, { before = before, target = target, after = { x = state.x, y = state.y, z = state.z, heading = state.heading }, placed = true })
     return true
   end
   local turtle = {
     forward = function() return move("forward") end, up = function() return move("up") end, down = function() return move("down") end,
-    turnLeft = function() state.heading = (state.heading + 3) % 4; return true end,
-    turnRight = function() state.heading = (state.heading + 1) % 4; return true end,
+    turnLeft = function() state.heading = (state.heading + 3) % 4; state.turns = state.turns + 1; return true end,
+    turnRight = function() state.heading = (state.heading + 1) % 4; state.turns = state.turns + 1; return true end,
     inspect = function() return state.falling_blocks > 0 end,
     inspectUp = function() return false end, inspectDown = function() return false end,
     dig = function() state.digs = state.digs + 1; if state.falling_blocks > 0 then state.falling_blocks = state.falling_blocks - 1 end; return true end,
@@ -126,13 +131,18 @@ assert(successfulState.moves == 24)
 assert(successfulState.dropped[1] == 12)
 assert(successfulState.items[15] == 10 and successfulState.items[16] == 8)
 
+local noTorches, noTorchState = run({ distance = 3, torch_interval = 10, items = { [15] = 10, [16] = 5 } })
+assert(noTorches.ok)
+
 local torches, torchState = run({ distance = 3, torch_interval = 1, items = { [15] = 10, [16] = 5 } })
 assert(torches.ok)
 assert(torchState.torch_placements == 3)
 assert(torchState.items[16] == 2)
 assert(torchState.heading == 0)
+assert(torchState.turns == noTorchState.turns + 12)
 for _, placement in ipairs(torchState.torch_positions) do
-  assert(placement.placed and placement.before.heading == 3)
+  assert(placement.placed and placement.before.heading == 2)
+  assert(placement.target.x == placement.before.x - 1 and placement.target.y == placement.before.y and placement.target.z == placement.before.z)
   assert(placement.before.x == placement.after.x and placement.before.y == placement.after.y and placement.before.z == placement.after.z)
 end
 
@@ -140,6 +150,7 @@ local missingWall, missingWallState, missingWallEvents = run({ distance = 1, tor
 assert(missingWall.ok)
 assert(missingWallState.torch_placements == 0)
 assert(missingWallState.heading == 0)
+assert(missingWallState.torch_positions[1].before.heading == 2)
 assert(missingWallEvents.warnings == 1)
 assert(missingWallEvents.logs[#missingWallEvents.logs] == "miner.completed")
 
