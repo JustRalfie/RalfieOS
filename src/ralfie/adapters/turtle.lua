@@ -36,6 +36,11 @@ function TurtleAdapter.new(options)
     return result.ok(true)
   end
   function adapter:itemCount(slot) return api.getItemCount(slot) end
+  function adapter:itemDetail(slot)
+    local called, value = pcall(api.getItemDetail, slot)
+    if not called then return nil end
+    return value
+  end
   function adapter:itemSpace(slot)
     local called, value = pcall(api.getItemSpace, slot)
     if not called then return nil end
@@ -46,6 +51,7 @@ function TurtleAdapter.new(options)
   function adapter:fuelLimit() return api.getFuelLimit() end
   function adapter:canRefuel() return api.refuel(0) == true end
   function adapter:refuel(count) return invoke("refuel", count) end
+  function adapter:transferTo(slot, count) return invoke("transferTo", slot, count) end
   function adapter:drop(direction, count)
     local method = direction == "down" and "dropDown" or direction == "up" and "dropUp" or "drop"
     return invoke(method, count)

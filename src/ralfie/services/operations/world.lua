@@ -5,6 +5,7 @@ function World.new(options)
   local navigation = assert(options.navigation, "world requires navigation")
   local result = assert(options.result, "world requires result")
   local logger = options.logger
+  local fluid = options.fluid
   local pause = options.pause or function() end
   local world = {}
 
@@ -14,9 +15,14 @@ function World.new(options)
       local inspected = adapter:inspect(direction)
       if not inspected.ok then return inspected end
       if not inspected.value.present then return result.ok(true) end
-      local dug = adapter:dig(direction)
-      if not dug.ok then return dug end
-      if logger then logger:debug("world.block_dug", { direction = direction }) end
+      if fluid and fluid:isFluid(inspected.value.data) then
+        local secured = fluid:secure(direction, inspected.value.data)
+        if not secured.ok then return secured end
+      else
+        local dug = adapter:dig(direction)
+        if not dug.ok then return dug end
+        if logger then logger:debug("world.block_dug", { direction = direction }) end
+      end
       pause()
     end
     return result.fail("WORLD.UNSTABLE_BLOCK", "Block kept falling into the path", { retryable = false, context = { direction = direction } })

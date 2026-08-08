@@ -26,6 +26,8 @@ function Miner.start(context, options)
   if not Ore then return failed end
   local Unloading; Unloading, failed = load(context, "ralfie.services.operations.unloading")
   if not Unloading then return failed end
+  local Fluid; Fluid, failed = load(context, "ralfie.services.operations.fluid")
+  if not Fluid then return failed end
 
   local distance = options.distance
   if distance == nil then distance = tonumber(context.ui:prompt("Tunnel distance:")) end
@@ -36,6 +38,7 @@ function Miner.start(context, options)
   local config = context.configuration
   local torchSlot = options.torch_slot or config:get("miner.torch_slot", 16)
   local fuelSlot = options.fuel_slot or config:get("miner.fuel_slot", 15)
+  local fillerSlot = options.filler_slot or config:get("miner.filler_slot", 14)
   local torchInterval = options.torch_interval or config:get("miner.torch_interval", 10)
   local safetyMargin = options.safety_margin or config:get("miner.safety_margin", 20)
   local movementRetries = options.movement_retries or config:get("miner.movement_retries", 3)
@@ -43,8 +46,8 @@ function Miner.start(context, options)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
   local excludedOreIds = options.excluded_ore_ids or config:get("miner.excluded_ore_ids", {})
   local inventoryFreeSlotMargin = options.inventory_free_slot_margin or config:get("miner.inventory_free_slot_margin", 1)
-  if torchSlot == fuelSlot or torchInterval < 1 then
-    return resultModule.fail("MINER.INVALID_CONFIGURATION", "Torch and fuel slots must differ and torch interval must be positive")
+  if torchSlot == fuelSlot or torchSlot == fillerSlot or fuelSlot == fillerSlot or torchInterval < 1 then
+    return resultModule.fail("MINER.INVALID_CONFIGURATION", "Filler, torch, and fuel slots must differ and torch interval must be positive")
   end
 
   local adapter = TurtleAdapter.new({ turtle = assert(context.turtle, "miner requires turtle hardware"), result = resultModule })
@@ -52,15 +55,22 @@ function Miner.start(context, options)
   local inventory = Inventory.new({ adapter = adapter, result = resultModule })
   local torchReservation = inventory:reserve(torchSlot)
   local fuelReservation = inventory:reserve(fuelSlot)
+  local fillerReservation = inventory:reserve(fillerSlot)
   if not torchReservation.ok then return torchReservation end
   if not fuelReservation.ok then return fuelReservation end
-  local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause })
+  if not fillerReservation.ok then return fillerReservation end
+  local fluid = Fluid.new({
+    adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui, filler_slot = fillerSlot,
+    allowed_fillers = options.allowed_fillers or config:get("miner.allowed_fillers", nil), desired_reserve = options.filler_reserve or config:get("miner.filler_reserve", 64),
+  })
+  local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid })
   local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
     navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = resultModule,
     ui = context.ui, logger = context.logger, movement_retries = movementRetries, fuel_safety_margin = safetyMargin,
-    reserved_slots = { torchSlot, fuelSlot }, free_slot_margin = inventoryFreeSlotMargin,
+    reserved_slots = { fillerSlot, torchSlot, fuelSlot }, torch_slot = torchSlot, fuel_slot = fuelSlot, free_slot_margin = inventoryFreeSlotMargin,
+    before_dump = function() return fluid:replenish() end,
   })
   local ore = Ore.new({
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui,
@@ -79,6 +89,8 @@ function Miner.start(context, options)
   context.ui:status("CHECK", "Fuel required: " .. fuelRequired, false)
   local fuelReady = fuel:ensure(fuelRequired, torchSlot, fuelSlot)
   if not fuelReady.ok then return fuelReady end
+  local refilled = fluid:replenish()
+  if not refilled.ok then return refilled end
 
   local function faceAndMove(heading)
     local faced = navigation:face(heading)
@@ -157,7 +169,9 @@ function Miner.start(context, options)
   end
   local restored = navigation:face(0)
   if not restored.ok then return restored end
-  local dumped = storage:dumpBehind({ torchSlot, fuelSlot })
+  local fillerReady = fluid:replenish()
+  if not fillerReady.ok then return fillerReady end
+  local dumped = storage:dumpBehind({ fillerSlot, torchSlot, fuelSlot })
   if not dumped.ok then return dumped end
   local position = navigation:position()
   context.logger:info("miner.completed", { position = position, distance = distance })

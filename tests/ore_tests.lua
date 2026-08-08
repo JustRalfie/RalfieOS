@@ -55,6 +55,9 @@ local function run(blocks, options)
   local adapter = TurtleAdapter.new({ turtle = turtle, result = Result })
   local navigation = Navigation.new({ adapter = adapter, result = Result })
   local world = World.new({ adapter = adapter, navigation = navigation, result = Result })
+  if options.fluid_failure then
+    world.move = function() return Result.fail("FLUID.UNSAFE", "lava cannot be sealed") end
+  end
   local logger = {
     info = function(_, event) table.insert(state.events, event) end,
     warn = function(_, event) table.insert(state.events, event) end,
@@ -191,5 +194,9 @@ restored(chaseFailureState, chaseFailureNavigation)
 local returnFailure, returnFailureState = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { fail_from_move = 2 })
 assert(not returnFailure.ok and returnFailure.error.code == "ORE.RETURN_FAILED")
 assert(returnFailureState.x == 1 and returnFailureState.y == 0 and returnFailureState.z == 0)
+
+local unsafeBranch, unsafeState, unsafeNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { fluid_failure = true })
+assert(unsafeBranch.ok and unsafeBranch.value.abandoned)
+restored(unsafeState, unsafeNavigation)
 
 print("ore tests passed")

@@ -61,6 +61,7 @@ function Bootstrap.start(options)
     },
     miner = {
       inventory_free_slot_margin = 1,
+      filler_slot = 14,
     },
   }
   local configuration = Configuration.new({

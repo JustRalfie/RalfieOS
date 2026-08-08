@@ -136,7 +136,7 @@ function Ore.new(options)
   function ore:mineExposed()
     local saved = copy(navigation:position())
     local visited, stack = {}, { { position = copy(saved), next_direction = 1 } }
-    local collected, detectedName, limitReached, inventoryFull = 0, nil, false, false
+    local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
     local failure
 
     while #stack > 0 and not failure and not limitReached do
@@ -185,8 +185,13 @@ function Ore.new(options)
               if not dug.ok then
                 failure = dug
               else
-                local entered = move(direction, false)
+                local entered = move(direction, true)
                 if not entered.ok then
+                  if entered.error and entered.error.code and entered.error.code:sub(1, 5) == "FLUID" then
+                    if ui then ui:status("ORE", "Abandoning unsafe branch", false) end
+                    abandoned = true
+                    break
+                  end
                   failure = entered
                 else
                   collected = collected + 1
@@ -204,6 +209,7 @@ function Ore.new(options)
       if logger then logger:warn("ore.inventory_full", { collected = collected, tunnel_position = saved }) end
       if ui then ui:status("ORE", "Inventory full; returning to tunnel", false) end
     end
+    if abandoned and logger then logger:warn("ore.branch_abandoned", { ore_type = detectedName, collected = collected, tunnel_position = saved }) end
     if ui and collected > 0 then ui:status("ORE", "Collected " .. collected .. " blocks", false) end
     local restored = restoreTunnel(saved)
     if not restored.ok then return restored end
@@ -211,9 +217,9 @@ function Ore.new(options)
       if logger then logger:error("ore.chase_failed", { ore_type = detectedName, collected = collected, reason = failure.error.message }) end
       return failure
     end
-    if logger then logger:info("ore.completed", { ore_type = detectedName, collected = collected, limit_reached = limitReached, inventory_full = inventoryFull }) end
+    if logger then logger:info("ore.completed", { ore_type = detectedName, collected = collected, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned }) end
     if ui and collected > 0 then ui:status("ORE", "Resuming", false) end
-    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull })
+    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
   end
 
   return ore

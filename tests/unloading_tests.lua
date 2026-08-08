@@ -52,7 +52,7 @@ local function build(options)
   local logger = { info = function() end, warn = function() end, error = function() end }
   local unloader = Unloading.new({
     navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = Result,
-    ui = ui, logger = logger, reserved_slots = { 16, 15 }, free_slot_margin = options.margin or 1, fuel_safety_margin = 20,
+    ui = ui, logger = logger, reserved_slots = { 14, 16, 15 }, torch_slot = 16, fuel_slot = 15, free_slot_margin = options.margin or 1, fuel_safety_margin = 20,
   })
   return unloader, state, navigation
 end
@@ -63,7 +63,7 @@ local saved = navigation:position()
 local first = unloader:run({ position = saved, slice = 7, mode = "tunnel" })
 assert(first.ok and first.value.trip == 1 and first.value.state.slice == 7)
 assert(state.position.x == saved.x and state.position.y == saved.y and state.position.z == saved.z and state.position.heading == saved.heading)
-assert(state.dumps == 1 and state.reserved[1] == 16 and state.reserved[2] == 15)
+assert(state.dumps == 1 and state.reserved[1] == 14 and state.reserved[2] == 16 and state.reserved[3] == 15)
 assert(state.torch_count == 8 and state.fuel_count == 6 and state.outside_fuel_count == 4)
 assert(state.fuel_required == ((math.abs(saved.x) + math.abs(saved.y) + math.abs(saved.z)) * 2) + 20)
 
