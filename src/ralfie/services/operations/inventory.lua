@@ -30,6 +30,14 @@ function Inventory.new(options)
     return self:withSlot(slot, function() return result.ok(adapter:canRefuel()) end)
   end
 
+  function inventory:isFull()
+    for slot = 1, 16 do
+      local space = adapter:itemSpace(slot)
+      if space == nil or space > 0 then return false end
+    end
+    return true
+  end
+
   return inventory
 end
 

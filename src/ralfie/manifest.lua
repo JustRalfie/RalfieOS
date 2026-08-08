@@ -25,6 +25,7 @@ return {
     "services/operations/inventory.lua",
     "services/operations/fuel.lua",
     "services/operations/storage.lua",
+    "services/operations/ore.lua",
     "interfaces/terminal/ui.lua",
     "interfaces/terminal/menu.lua",
     "apps/miner/manifest.lua",

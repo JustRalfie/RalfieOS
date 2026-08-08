@@ -36,6 +36,11 @@ function TurtleAdapter.new(options)
     return result.ok(true)
   end
   function adapter:itemCount(slot) return api.getItemCount(slot) end
+  function adapter:itemSpace(slot)
+    local called, value = pcall(api.getItemSpace, slot)
+    if not called then return nil end
+    return value
+  end
   function adapter:selectedSlot() return api.getSelectedSlot() end
   function adapter:fuelLevel() return api.getFuelLevel() end
   function adapter:fuelLimit() return api.getFuelLimit() end

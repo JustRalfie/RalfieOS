@@ -22,6 +22,8 @@ function Miner.start(context, options)
   if not Fuel then return failed end
   local Storage; Storage, failed = load(context, "ralfie.services.operations.storage")
   if not Storage then return failed end
+  local Ore; Ore, failed = load(context, "ralfie.services.operations.ore")
+  if not Ore then return failed end
 
   local distance = options.distance
   if distance == nil then distance = tonumber(context.ui:prompt("Tunnel distance:")) end
@@ -35,6 +37,8 @@ function Miner.start(context, options)
   local torchInterval = options.torch_interval or config:get("miner.torch_interval", 10)
   local safetyMargin = options.safety_margin or config:get("miner.safety_margin", 20)
   local movementRetries = options.movement_retries or config:get("miner.movement_retries", 3)
+  local maxVeinSize = options.max_vein_size or config:get("miner.max_vein_size", 64)
+  local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
   if torchSlot == fuelSlot or torchInterval < 1 then
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Torch and fuel slots must differ and torch interval must be positive")
   end
@@ -49,6 +53,10 @@ function Miner.start(context, options)
   local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause })
   local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
+  local ore = Ore.new({
+    adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui,
+    max_size = maxVeinSize, additional_ids = additionalOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
+  })
 
   local torchCount = inventory:count(torchSlot)
   local torchesNeeded = math.floor(distance / torchInterval)
@@ -73,6 +81,8 @@ function Miner.start(context, options)
     if not entered.ok then return entered end
     local column = world:clearColumn()
     if not column.ok then return column end
+    local chased = ore:mineExposed()
+    if not chased.ok then return chased end
     return faceAndMove((heading + 2) % 4)
   end
 
@@ -100,6 +110,8 @@ function Miner.start(context, options)
     if not advanced.ok then return advanced end
     local center = world:clearColumn()
     if not center.ok then return center end
+    local chased = ore:mineExposed()
+    if not chased.ok then return chased end
     local left = excavateSide(3)
     if not left.ok then return left end
     local right = excavateSide(1)
