@@ -95,7 +95,7 @@ function Bootstrap.start(options)
   local context = {
     runtime_root = runtimeRoot, data_root = dataRoot, module_root = moduleRoot, configuration = configuration, logger = logger,
     updater = updater, applications = applications, ui = Ui.new({ terminal = terminal, colors = colorApi, reader = lineReader }),
-    module_loader = loader,
+    module_loader = loader, turtle = options.turtle,
   }
   local loadedApps = applications:loadAll(context)
   if not loadedApps.ok then
