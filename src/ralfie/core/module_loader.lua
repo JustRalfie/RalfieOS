@@ -9,6 +9,7 @@ function ModuleLoader.new(options)
   local loader = {
     root = options.root or "/",
     result = options.result,
+    loadfile = assert(options.loadfile, "module loader requires loadfile"),
     cache = {},
   }
 
@@ -16,7 +17,7 @@ function ModuleLoader.new(options)
     if cacheKey and self.cache[cacheKey] ~= nil then
       return self.result.ok(self.cache[cacheKey])
     end
-    local chunk, loadErr = loadfile(path)
+    local chunk, loadErr = self.loadfile(path)
     if not chunk then
       return self.result.fail("MODULE.LOAD_FAILED", "Unable to load " .. path, {
         context = { detail = loadErr, path = path },

@@ -37,6 +37,10 @@ function Configuration.new(options)
   end
 
   function service:load(overrides)
+    local recovered, recoveryErr = self.fsx.recoverAtomic(self.filesystem, self.path)
+    if not recovered then
+      return self.result.fail("CONFIG.RECOVERY_FAILED", "Unable to recover a previous configuration write", { context = { detail = recoveryErr } })
+    end
     local loaded = self.tablex.copy(self.defaults)
     if self.filesystem.exists(self.path) then
       local content, readErr = self.fsx.read(self.filesystem, self.path)
@@ -76,8 +80,15 @@ function Configuration.new(options)
     if not self.values then
       return self.result.fail("CONFIG.NOT_LOADED", "Configuration must be loaded before it can be changed")
     end
-    self.tablex.setPath(self.values, path, value)
-    return self:validate(self.values)
+    local proposed = self.tablex.copy(self.values)
+    local changed, changeErr = self.tablex.setPath(proposed, path, value)
+    if not changed then
+      return self.result.fail("CONFIG.INVALID_PATH", "Unable to set configuration value", { context = { path = path, detail = changeErr } })
+    end
+    local validation = self:validate(proposed)
+    if not validation.ok then return validation end
+    self.values = proposed
+    return self.result.ok(true)
   end
 
   function service:save()

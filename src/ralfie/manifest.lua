@@ -1,0 +1,21 @@
+return {
+  version = "0.1.0",
+  api_version = 1,
+  files = {
+    "core/result.lua",
+    "core/module_loader.lua",
+    "lib/tablex.lua",
+    "lib/paths.lua",
+    "lib/serialization.lua",
+    "lib/fsx.lua",
+    "bootstrap/installer.lua",
+    "bootstrap/application_loader.lua",
+    "bootstrap/init.lua",
+    "services/platform/configuration.lua",
+    "services/platform/logging.lua",
+    "services/platform/updating.lua",
+    "interfaces/terminal/ui.lua",
+    "start.lua",
+    "manifest.lua",
+  },
+}

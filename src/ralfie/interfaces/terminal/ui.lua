@@ -1,8 +1,11 @@
 local Ui = {}
 
 function Ui.new(options)
-  local terminal = options.terminal or term
-  local ui = { terminal = assert(terminal, "UI requires a terminal") }
+  local ui = {
+    terminal = assert(options.terminal, "UI requires a terminal"),
+    colors = options.colors,
+    reader = assert(options.reader, "UI requires a line reader"),
+  }
 
   function ui:clear()
     self.terminal.clear()
@@ -10,31 +13,34 @@ function Ui.new(options)
   end
 
   function ui:line(text)
-    self.terminal.write(tostring(text))
+    local width, height = self.terminal.getSize()
     local _, y = self.terminal.getCursorPos()
-    local _, height = self.terminal.getSize()
+    local rendered = tostring(text)
+    if #rendered > width then rendered = rendered:sub(1, math.max(0, width - 3)) .. "..." end
+    self.terminal.setCursorPos(1, y)
+    self.terminal.write(rendered)
     if y < height then self.terminal.setCursorPos(1, y + 1) end
   end
 
   function ui:heading(text)
-    if self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(colors.cyan) end
+    if self.colors and self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(self.colors.cyan) end
     self:line(text)
-    if self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(colors.white) end
+    if self.colors and self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(self.colors.white) end
   end
 
   function ui:status(label, message, isError)
-    if self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(isError and colors.red or colors.lime) end
+    if self.colors and self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(isError and self.colors.red or self.colors.lime) end
     self:line("[" .. label .. "] " .. message)
-    if self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(colors.white) end
+    if self.colors and self.terminal.isColor and self.terminal.isColor() then self.terminal.setTextColor(self.colors.white) end
   end
 
   function ui:prompt(label, reader)
     self.terminal.write(label .. " ")
-    return (reader or read)()
+    return (reader or self.reader)()
   end
 
   function ui:progress(label, current, total)
-    local width = math.max(10, math.min(30, select(1, self.terminal.getSize()) - #label - 12))
+    local width = math.max(1, math.min(30, select(1, self.terminal.getSize()) - #label - 12))
     local ratio = total > 0 and math.max(0, math.min(1, current / total)) or 0
     local filled = math.floor(width * ratio)
     self:line(label .. " [" .. string.rep("#", filled) .. string.rep("-", width - filled) .. "] " .. math.floor(ratio * 100) .. "%")

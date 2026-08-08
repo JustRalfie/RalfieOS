@@ -37,17 +37,24 @@ end
 
 function Tablex.setPath(target, path, value)
   local current = target
-  local previous
+  local keys = {}
   for key in string.gmatch(path, "[^%.]+") do
-    if previous then
-      current = current[previous]
-    end
-    previous = key
-    if previous and current[previous] == nil then
-      current[previous] = {}
-    end
+    table.insert(keys, key)
   end
-  current[previous] = value
+  if #keys == 0 then
+    return false, "path is empty"
+  end
+  for index = 1, #keys - 1 do
+    local key = keys[index]
+    if current[key] == nil then
+      current[key] = {}
+    elseif type(current[key]) ~= "table" then
+      return false, "path crosses a non-table value"
+    end
+    current = current[key]
+  end
+  current[keys[#keys]] = value
+  return true
 end
 
 return Tablex

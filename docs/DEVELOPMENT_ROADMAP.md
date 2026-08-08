@@ -1,8 +1,8 @@
 # Development Roadmap
 
-## Current gate: architecture approval
+## Current gate: framework review
 
-The architecture review is complete. Implementation remains blocked until the pre-implementation checklist in [DESIGN_REVIEW.md](DESIGN_REVIEW.md) is decided: compatibility baseline, license, persistence proposal, toolchain/CI baseline, and first workflow acceptance tests.
+The architecture review is complete and the framework baseline is implemented against the CC:Tweaked CraftOS Lua API. Before applications begin, review the framework's installation, configuration, logging, UI, module-loading, and update contracts. License selection and a test/CI baseline remain required before a public release.
 
 ## After approval
 

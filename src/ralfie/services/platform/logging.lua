@@ -9,6 +9,7 @@ function Logging.new(options)
     serialization = assert(options.serialization, "logger requires serialization"),
     result = assert(options.result, "logger requires result"),
     path = assert(options.path, "logger requires a path"),
+    clock = assert(options.clock, "logger requires a clock"),
     minimumLevel = options.minimum_level or "info",
     context = options.context or {},
   }
@@ -19,7 +20,7 @@ function Logging.new(options)
     for key, value in pairs(context or {}) do merged[key] = value end
     return Logging.new({
       filesystem = self.filesystem, fsx = self.fsx, serialization = self.serialization,
-      result = self.result, path = self.path, minimum_level = self.minimumLevel, context = merged,
+      result = self.result, path = self.path, minimum_level = self.minimumLevel, context = merged, clock = self.clock,
     })
   end
 
@@ -33,7 +34,7 @@ function Logging.new(options)
     local merged = {}
     for key, value in pairs(self.context) do merged[key] = value end
     for key, value in pairs(context or {}) do merged[key] = value end
-    local timestamp = os.epoch and os.epoch("utc") or os.time()
+    local timestamp = self.clock()
     local encoded, encodeErr = self.serialization.encode({
       timestamp = timestamp, level = level, event = event, context = merged,
     })
