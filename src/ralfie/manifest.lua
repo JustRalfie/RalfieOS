@@ -20,6 +20,7 @@ return {
     "services/platform/logging.lua",
     "services/platform/updating.lua",
     "services/platform/remote_update.lua",
+    "services/platform/jobs.lua",
     "services/operations/navigation.lua",
     "services/operations/world.lua",
     "services/operations/inventory.lua",

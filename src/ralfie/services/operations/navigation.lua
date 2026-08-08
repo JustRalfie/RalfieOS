@@ -4,6 +4,7 @@ function Navigation.new(options)
   local adapter = assert(options.adapter, "navigation requires turtle adapter")
   local result = assert(options.result, "navigation requires result")
   local state = { x = 0, y = 0, z = 0, heading = 0 }
+  local onChange = options.on_change
   local navigation = {}
 
   local vectors = {
@@ -16,16 +17,22 @@ function Navigation.new(options)
   function navigation:position()
     return { x = state.x, y = state.y, z = state.z, heading = state.heading }
   end
+  local function changed() if onChange then onChange(navigation:position()) end end
+  function navigation:restore(position)
+    if type(position) ~= "table" or type(position.x) ~= "number" or type(position.y) ~= "number" or type(position.z) ~= "number" or type(position.heading) ~= "number" then return result.fail("NAVIGATION.INVALID_STATE", "Saved navigation state is invalid") end
+    state.x, state.y, state.z, state.heading = position.x, position.y, position.z, position.heading
+    return result.ok(navigation:position())
+  end
 
   function navigation:turnRight()
     local turned = adapter:turnRight()
-    if turned.ok then state.heading = (state.heading + 1) % 4 end
+    if turned.ok then state.heading = (state.heading + 1) % 4; changed() end
     return turned
   end
 
   function navigation:turnLeft()
     local turned = adapter:turnLeft()
-    if turned.ok then state.heading = (state.heading + 3) % 4 end
+    if turned.ok then state.heading = (state.heading + 3) % 4; changed() end
     return turned
   end
 
@@ -50,6 +57,7 @@ function Navigation.new(options)
       state.x = state.x + vector.x
       state.z = state.z + vector.z
     end
+    changed()
     return result.ok(self:position())
   end
 

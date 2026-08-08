@@ -28,6 +28,8 @@ function Miner.start(context, options)
   if not Unloading then return failed end
   local Fluid; Fluid, failed = load(context, "ralfie.services.operations.fluid")
   if not Fluid then return failed end
+  local Jobs; Jobs, failed = load(context, "ralfie.services.platform.jobs")
+  if not Jobs then return failed end
 
   local distance = options.distance
   if distance == nil then distance = tonumber(context.ui:prompt("Tunnel distance:")) end
@@ -50,8 +52,26 @@ function Miner.start(context, options)
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Filler, torch, and fuel slots must differ and torch interval must be positive")
   end
 
+  local job
+  local jobState = options.recovery
+  if context.filesystem and context.fsx and context.serialization then
+    job = Jobs.new({ filesystem = context.filesystem, fsx = context.fsx, serialization = context.serialization, result = resultModule, clock = context.clock })
+    if not jobState then jobState = { job_type = "tunnel_miner", id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot } } end
+  end
+  local function checkpoint(position)
+    if not job then return end
+    jobState.position = position
+    job:save(jobState)
+  end
   local adapter = TurtleAdapter.new({ turtle = assert(context.turtle, "miner requires turtle hardware"), result = resultModule })
-  local navigation = Navigation.new({ adapter = adapter, result = resultModule })
+  local navigation = Navigation.new({ adapter = adapter, result = resultModule, on_change = checkpoint })
+  if options.recovery then
+    local restoredState = navigation:restore(options.recovery.position)
+    if not restoredState.ok then return restoredState end
+    context.ui:status("RECOVERY", "Restored slice " .. options.recovery.slice .. "/" .. distance, false)
+  else
+    checkpoint(navigation:position())
+  end
   local inventory = Inventory.new({ adapter = adapter, result = resultModule })
   local torchReservation = inventory:reserve(torchSlot)
   local fuelReservation = inventory:reserve(fuelSlot)
@@ -136,7 +156,7 @@ function Miner.start(context, options)
 
   context.logger:info("miner.started", { distance = distance, torch_interval = torchInterval, fuel_required = fuelRequired })
   context.ui:heading("Miner v0.1")
-  for step = 1, distance do
+  for step = (jobState and jobState.slice or 1), distance do
     local beforeSlice = unloadIfNeeded(step, "tunnel")
     if not beforeSlice.ok then return beforeSlice end
     context.ui:status("MINE", "Slice " .. step .. "/" .. distance, false)
@@ -158,6 +178,7 @@ function Miner.start(context, options)
       local torch = placeTorch()
       if not torch.ok then return torch end
     end
+    if job then jobState.slice = step + 1; jobState.operation = "mining"; checkpoint(navigation:position()) end
   end
 
   context.ui:status("RETURN", "Returning to start", false)
@@ -173,9 +194,11 @@ function Miner.start(context, options)
   if not fillerReady.ok then return fillerReady end
   local dumped = storage:dumpBehind({ fillerSlot, torchSlot, fuelSlot })
   if not dumped.ok then return dumped end
+  if job then jobState.operation = "completing"; checkpoint(navigation:position()) end
   local position = navigation:position()
   context.logger:info("miner.completed", { position = position, distance = distance })
   context.ui:status("DONE", "Tunnel complete; items deposited behind start.", false)
+  if job then job:clear(true) end
   return resultModule.ok({ position = position, distance = distance })
 end
 
