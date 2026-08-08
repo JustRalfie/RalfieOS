@@ -28,6 +28,8 @@ function Miner.start(context, options)
   if not Unloading then return failed end
   local Fluid; Fluid, failed = load(context, "ralfie.services.operations.fluid")
   if not Fluid then return failed end
+  local Dashboard; Dashboard, failed = load(context, "ralfie.interfaces.terminal.miner_dashboard")
+  if not Dashboard then return failed end
   local Jobs; Jobs, failed = load(context, "ralfie.services.platform.jobs")
   if not Jobs then return failed end
 
@@ -79,8 +81,25 @@ function Miner.start(context, options)
   if not torchReservation.ok then return torchReservation end
   if not fuelReservation.ok then return fuelReservation end
   if not fillerReservation.ok then return fillerReservation end
+  local view = { distance = distance, slice = 0, capacity = 13, status = "MINING", ores = 0, veins = 0, unloads = 0 }
+  local terminal = context.ui.terminal or { getSize = function() return 51, 19 end, isColor = function() return false end, setCursorPos = function() end, write = function() end, clear = function() end }
+  local dashboard = Dashboard.new({ terminal = terminal, colors = context.ui.colors })
+  local minerUi = {
+    status = function(_, label, message, isError)
+      local map = { MINE = "MINING", ORE = "CHASING ORE", FLUID = "SECURING FLUID", RETURN = "RETURNING HOME", DUMP = "UNLOADING", RESUME = "RESUMING", DONE = "COMPLETE" }
+      view.status = isError and "ERROR" or (map[label] or view.status)
+      if label == "ORE" and message and message:find(" detected", 1, true) then view.ore = message:gsub(" detected", "") end
+      view.fuel, view.torches, view.filler = adapter:fuelLevel(), inventory:count(torchSlot), inventory:count(fillerSlot)
+      view.loot = 13 - inventory:freeSlots({ fillerSlot, torchSlot, fuelSlot })
+      dashboard:render(view)
+      if not context.ui.terminal then context.ui:status(label, message, isError) end
+    end,
+    heading = function() end, line = function(_, text) context.ui:line(text) end,
+    prompt = function(_, label, reader) return context.ui:prompt(label, reader) end,
+    clear = function() dashboard:reset() end,
+  }
   local fluid = Fluid.new({
-    adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui, filler_slot = fillerSlot,
+    adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger, ui = minerUi, filler_slot = fillerSlot,
     allowed_fillers = options.allowed_fillers or config:get("miner.allowed_fillers", nil), desired_reserve = options.filler_reserve or config:get("miner.filler_reserve", 64),
   })
   local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid })
@@ -88,12 +107,12 @@ function Miner.start(context, options)
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
     navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = resultModule,
-    ui = context.ui, logger = context.logger, movement_retries = movementRetries, fuel_safety_margin = safetyMargin,
+    ui = minerUi, logger = context.logger, movement_retries = movementRetries, fuel_safety_margin = safetyMargin,
     reserved_slots = { fillerSlot, torchSlot, fuelSlot }, torch_slot = torchSlot, fuel_slot = fuelSlot, free_slot_margin = inventoryFreeSlotMargin,
     before_dump = function() return fluid:replenish() end,
   })
   local ore = Ore.new({
-    adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui,
+    adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = minerUi,
     max_size = maxVeinSize, additional_ids = additionalOreIds, excluded_ids = excludedOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
     should_stop = function() return unloader:isNearlyFull() end,
   })
@@ -122,7 +141,7 @@ function Miner.start(context, options)
     if not unloader:isNearlyFull() then return resultModule.ok(false) end
     local unloaded = unloader:run({ position = navigation:position(), slice = slice, mode = mode })
     if not unloaded.ok then return unloaded end
-    context.ui:status("MINE", "Continuing", false)
+    minerUi:status("MINE", "Continuing", false)
     return resultModule.ok(true)
   end
 
@@ -147,7 +166,7 @@ function Miner.start(context, options)
     if not restored.ok then return restored end
     if not placed.ok then
       context.logger:warn("miner.torch_failed", { position = navigation:position(), reason = placed.error.message })
-      context.ui:status("WARN", "Torch could not be placed; continuing.", false)
+      minerUi:status("WARN", "Torch could not be placed; continuing.", false)
       return resultModule.ok(false)
     end
     context.logger:info("miner.torch_placed", { position = navigation:position() })
@@ -155,11 +174,11 @@ function Miner.start(context, options)
   end
 
   context.logger:info("miner.started", { distance = distance, torch_interval = torchInterval, fuel_required = fuelRequired })
-  context.ui:heading("Miner v0.1")
+  dashboard:reset(); minerUi:status("MINE", "Starting", false)
   for step = (jobState and jobState.slice or 1), distance do
     local beforeSlice = unloadIfNeeded(step, "tunnel")
     if not beforeSlice.ok then return beforeSlice end
-    context.ui:status("MINE", "Slice " .. step .. "/" .. distance, false)
+    view.slice = step - 1; minerUi:status("MINE", "Slice " .. step .. "/" .. distance, false)
     local advanced = world:move("forward", movementRetries)
     if not advanced.ok then return advanced end
     local center = world:clearColumn()
@@ -181,7 +200,7 @@ function Miner.start(context, options)
     if job then jobState.slice = step + 1; jobState.operation = "mining"; checkpoint(navigation:position()) end
   end
 
-  context.ui:status("RETURN", "Returning to start", false)
+  view.slice = distance; minerUi:status("RETURN", "Returning to start", false)
   local backward = navigation:face(2)
   if not backward.ok then return backward end
   for _ = 1, distance do
@@ -197,7 +216,7 @@ function Miner.start(context, options)
   if job then jobState.operation = "completing"; checkpoint(navigation:position()) end
   local position = navigation:position()
   context.logger:info("miner.completed", { position = position, distance = distance })
-  context.ui:status("DONE", "Tunnel complete; items deposited behind start.", false)
+  minerUi:status("DONE", "Tunnel complete; items deposited behind start.", false)
   if job then job:clear(true) end
   return resultModule.ok({ position = position, distance = distance })
 end
