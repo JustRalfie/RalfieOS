@@ -31,12 +31,17 @@ function World.new(options)
   function world:move(direction, retries, clearPath)
     retries = retries or 3
     if clearPath == nil then clearPath = true end
-    local lastFailure
-    for attempt = 1, retries do
-      if clearPath then
+    if clearPath then
+      local inspected = adapter:inspect(direction)
+      if not inspected.ok then return inspected end
+      if not inspected.value.present then clearPath = false else
         local cleared = self:clear(direction)
         if not cleared.ok then return cleared end
+        clearPath = false
       end
+    end
+    local lastFailure
+    for attempt = 1, retries do
       local moved = navigation:move(direction)
       if moved.ok then return moved end
       lastFailure = moved
