@@ -34,7 +34,11 @@ First startup creates `/ralfie-data/config/config.lua` from built-in defaults an
 
 ## Application contract for later milestones
 
-An application directory beneath `/ralfie/apps` must contain `manifest.lua` returning an `id` and an `entry` path. The entry module must return a table exposing `start(context)`. The loader rejects duplicate IDs and malformed exports. No such application is included in this release.
+An application directory beneath `/ralfie/apps` must contain `manifest.lua` returning an `id` and an `entry` path. The entry module must return a table exposing `start(context)`. The loader rejects duplicate IDs and malformed exports. Miner v0.1 is the first bundled application.
+
+## Included application: Miner v0.1
+
+Miner v0.1 is launched with `dofile("/ralfie/miner.lua")`. It excavates a fixed-distance 3x3 tunnel, returns to its initial relative position and heading, and deposits non-reserved items behind the starting position. See [MINER_LIVE_TEST.md](../MINER_LIVE_TEST.md) for setup, configuration, and live validation.
 
 ## Update source contract
 

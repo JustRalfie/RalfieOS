@@ -59,6 +59,13 @@ function Bootstrap.start(options)
       data_path = dataRoot .. "/data",
       applications_path = dataRoot .. "/apps",
     },
+    miner = {
+      torch_interval = 10,
+      torch_slot = 16,
+      fuel_slot = 15,
+      safety_margin = 20,
+      movement_retries = 3,
+    },
   }
   local configuration = Configuration.new({
     filesystem = filesystem, fsx = Fsx, serialization = serializer, tablex = Tablex, result = Result,
@@ -74,6 +81,17 @@ function Bootstrap.start(options)
     end
     if value.log_level ~= "debug" and value.log_level ~= "info" and value.log_level ~= "warn" and value.log_level ~= "error" then
       return false, "system.log_level must be debug, info, warn, or error"
+    end
+    return true
+  end)
+  configuration:registerSchema("miner", function(value)
+    if type(value) ~= "table" then return false, "miner configuration must be a table" end
+    if type(value.torch_interval) ~= "number" or value.torch_interval < 1 then return false, "miner.torch_interval must be positive" end
+    if type(value.torch_slot) ~= "number" or type(value.fuel_slot) ~= "number" or value.torch_slot < 1 or value.torch_slot > 16 or value.fuel_slot < 1 or value.fuel_slot > 16 or value.torch_slot == value.fuel_slot then
+      return false, "miner torch and fuel slots must be different slots from 1 to 16"
+    end
+    if type(value.safety_margin) ~= "number" or value.safety_margin < 0 or type(value.movement_retries) ~= "number" or value.movement_retries < 1 then
+      return false, "miner safety margin and movement retries are invalid"
     end
     return true
   end)
@@ -93,7 +111,7 @@ function Bootstrap.start(options)
     root = configuration:get("system.applications_path"),
   })
   local context = {
-    runtime_root = runtimeRoot, data_root = dataRoot, module_root = moduleRoot, configuration = configuration, logger = logger,
+    runtime_root = runtimeRoot, data_root = dataRoot, module_root = moduleRoot, configuration = configuration, logger = logger, turtle = options.turtle,
     updater = updater, applications = applications, ui = Ui.new({ terminal = terminal, colors = colorApi, reader = lineReader }),
     module_loader = loader,
   }
