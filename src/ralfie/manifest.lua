@@ -12,6 +12,7 @@ return {
     "lib/paths.lua",
     "lib/serialization.lua",
     "lib/fsx.lua",
+    "adapters/turtle.lua",
     "bootstrap/installer.lua",
     "bootstrap/application_loader.lua",
     "bootstrap/init.lua",
@@ -19,11 +20,12 @@ return {
     "services/platform/logging.lua",
     "services/platform/updating.lua",
     "services/platform/remote_update.lua",
+    "services/operations/navigation.lua",
+    "services/operations/world.lua",
+    "services/operations/inventory.lua",
+    "services/operations/fuel.lua",
+    "services/operations/storage.lua",
     "interfaces/terminal/ui.lua",
-<<<<<<< Updated upstream
-    "start.lua",
-    "update.lua",
-=======
     "interfaces/terminal/menu.lua",
     "apps/miner/manifest.lua",
     "apps/miner/miner.lua",
@@ -33,7 +35,6 @@ return {
     "ralfie.lua",
     "launchers/ralf.lua",
     "launchers/RalfieOS.lua",
->>>>>>> Stashed changes
     "manifest.lua",
   },
 }
