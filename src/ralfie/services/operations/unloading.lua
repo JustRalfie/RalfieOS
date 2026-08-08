@@ -96,6 +96,10 @@ function Unloading.new(options)
     self.trips = self.trips + 1
     if ui then ui:status("DUMP", "Complete", false) end
     if logger then logger:info("unload.completed", { trip = self.trips, dumped = dumped.value.dumped, slice = saved.slice }) end
+    if self:isNearlyFull() then
+      if logger then logger:error("unload.no_space", { trip = self.trips, position = navigation:position() }) end
+      return result.fail("UNLOAD.NO_SPACE", "Inventory remains nearly full after depositing items; cannot resume safely")
+    end
     if ui then ui:status("RESUME", "Returning to saved position", false) end
     local resumed = moveTo(saved.position, saved.position.heading)
     if not resumed.ok then

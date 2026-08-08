@@ -44,6 +44,7 @@ local function build(options)
       state.reserved = reserved
       if options.dump_failure then return Result.fail("TURTLE.ACTION_FAILED", options.dump_failure) end
       state.dumps = state.dumps + 1
+      state.free_slots = options.free_slots_after_dump == nil and 5 or options.free_slots_after_dump
       return Result.ok({ dumped = 12 })
     end,
   }
@@ -94,5 +95,10 @@ local lowFuel, lowFuelState = build({ fuel_failure = true })
 local failedFuel = lowFuel:run({ position = lowFuelState.position, slice = 4, mode = "tunnel" })
 assert(not failedFuel.ok and failedFuel.error.code == "FUEL.INSUFFICIENT")
 assert(lowFuelState.moves == 0 and lowFuelState.dumps == 0)
+
+local noSpace, noSpaceState = build({ free_slots_after_dump = 1 })
+local failedNoSpace = noSpace:run({ position = noSpaceState.position, slice = 4, mode = "tunnel" })
+assert(not failedNoSpace.ok and failedNoSpace.error.code == "UNLOAD.NO_SPACE")
+assert(noSpaceState.position.x == 0 and noSpaceState.position.y == 0 and noSpaceState.position.z == 0)
 
 print("unloading tests passed")
