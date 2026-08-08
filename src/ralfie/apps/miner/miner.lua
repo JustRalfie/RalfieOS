@@ -24,6 +24,8 @@ function Miner.start(context, options)
   if not Storage then return failed end
   local Ore; Ore, failed = load(context, "ralfie.services.operations.ore")
   if not Ore then return failed end
+  local Unloading; Unloading, failed = load(context, "ralfie.services.operations.unloading")
+  if not Unloading then return failed end
 
   local distance = options.distance
   if distance == nil then distance = tonumber(context.ui:prompt("Tunnel distance:")) end
@@ -39,6 +41,7 @@ function Miner.start(context, options)
   local movementRetries = options.movement_retries or config:get("miner.movement_retries", 3)
   local maxVeinSize = options.max_vein_size or config:get("miner.max_vein_size", 64)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
+  local inventoryFreeSlotMargin = options.inventory_free_slot_margin or config:get("miner.inventory_free_slot_margin", 1)
   if torchSlot == fuelSlot or torchInterval < 1 then
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Torch and fuel slots must differ and torch interval must be positive")
   end
@@ -53,9 +56,15 @@ function Miner.start(context, options)
   local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause })
   local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
+  local unloader = Unloading.new({
+    navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = resultModule,
+    ui = context.ui, logger = context.logger, movement_retries = movementRetries, fuel_safety_margin = safetyMargin,
+    reserved_slots = { torchSlot, fuelSlot }, free_slot_margin = inventoryFreeSlotMargin,
+  })
   local ore = Ore.new({
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = context.ui,
     max_size = maxVeinSize, additional_ids = additionalOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
+    should_stop = function() return unloader:isNearlyFull() end,
   })
 
   local torchCount = inventory:count(torchSlot)
@@ -76,13 +85,23 @@ function Miner.start(context, options)
     return world:move("forward", movementRetries)
   end
 
-  local function excavateSide(heading)
+  local function unloadIfNeeded(slice, mode)
+    if not unloader:isNearlyFull() then return resultModule.ok(false) end
+    local unloaded = unloader:run({ position = navigation:position(), slice = slice, mode = mode })
+    if not unloaded.ok then return unloaded end
+    context.ui:status("MINE", "Continuing", false)
+    return resultModule.ok(true)
+  end
+
+  local function excavateSide(heading, slice)
     local entered = faceAndMove(heading)
     if not entered.ok then return entered end
     local column = world:clearColumn()
     if not column.ok then return column end
     local chased = ore:mineExposed()
     if not chased.ok then return chased end
+    local unloaded = unloadIfNeeded(slice, chased.value.inventory_full and "ore" or "tunnel")
+    if not unloaded.ok then return unloaded end
     return faceAndMove((heading + 2) % 4)
   end
 
@@ -105,6 +124,8 @@ function Miner.start(context, options)
   context.logger:info("miner.started", { distance = distance, torch_interval = torchInterval, fuel_required = fuelRequired })
   context.ui:heading("Miner v0.1")
   for step = 1, distance do
+    local beforeSlice = unloadIfNeeded(step, "tunnel")
+    if not beforeSlice.ok then return beforeSlice end
     context.ui:status("MINE", "Slice " .. step .. "/" .. distance, false)
     local advanced = world:move("forward", movementRetries)
     if not advanced.ok then return advanced end
@@ -112,9 +133,11 @@ function Miner.start(context, options)
     if not center.ok then return center end
     local chased = ore:mineExposed()
     if not chased.ok then return chased end
-    local left = excavateSide(3)
+    local unloaded = unloadIfNeeded(step, chased.value.inventory_full and "ore" or "tunnel")
+    if not unloaded.ok then return unloaded end
+    local left = excavateSide(3, step)
     if not left.ok then return left end
-    local right = excavateSide(1)
+    local right = excavateSide(1, step)
     if not right.ok then return right end
     local original = navigation:face(0)
     if not original.ok then return original end

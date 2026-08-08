@@ -59,6 +59,9 @@ function Bootstrap.start(options)
       data_path = dataRoot .. "/data",
       applications_path = dataRoot .. "/apps",
     },
+    miner = {
+      inventory_free_slot_margin = 1,
+    },
   }
   local configuration = Configuration.new({
     filesystem = filesystem, fsx = Fsx, serialization = serializer, tablex = Tablex, result = Result,

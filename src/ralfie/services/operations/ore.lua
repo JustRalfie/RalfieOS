@@ -33,6 +33,7 @@ function Ore.new(options)
   local retries = options.movement_retries or 3
   local additional = options.additional_ids or {}
   local matcher = options.matcher
+  local shouldStop = options.should_stop
   local ore = {}
 
   assert(type(maxSize) == "number" and maxSize >= 1 and maxSize % 1 == 0, "ore maximum size must be a positive whole number")
@@ -117,7 +118,7 @@ function Ore.new(options)
     local failure
 
     while #stack > 0 and not failure and not limitReached do
-      if inventory and inventory:isFull() then
+      if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
         inventoryFull = true
         break
       end

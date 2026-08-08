@@ -38,6 +38,15 @@ function Inventory.new(options)
     return true
   end
 
+  function inventory:freeSlots(reservedSlots)
+    local reserved, free = {}, 0
+    for _, slot in ipairs(reservedSlots or {}) do reserved[slot] = true end
+    for slot = 1, 16 do
+      if not reserved[slot] and self:count(slot) == 0 then free = free + 1 end
+    end
+    return free
+  end
+
   return inventory
 end
 
