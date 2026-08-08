@@ -137,12 +137,14 @@ local updated = updater:apply("/source", "/installed")
 assert(updated.ok, updated.error and updated.error.message)
 assert(Fsx.read(fs, "/installed/main.lua") == "return 'updated'")
 
-local remoteManifest = "return { version = 'remote-test', api_version = 1, files = { 'payload.lua' } }"
+local remoteManifest = "return { version = 'remote-test', api_version = 1, files = { 'payload.lua', 'launchers/ralf.lua' }, launchers = { { source = 'launchers/ralf.lua', target = '/ralf.lua' } } }"
 local remoteFiles = {
   ["https://example.invalid/src/ralfie/manifest.lua"] = remoteManifest,
   ["https://example.invalid/src/ralfie/payload.lua"] = "return 'remote'",
+  ["https://example.invalid/src/ralfie/launchers/ralf.lua"] = "return 'launcher'",
   ["https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/src/ralfie/manifest.lua"] = remoteManifest,
   ["https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/src/ralfie/payload.lua"] = "return 'remote'",
+  ["https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/src/ralfie/launchers/ralf.lua"] = "return 'launcher'",
 }
 local fakeHttp = {
   get = function(url)
@@ -155,6 +157,7 @@ local remote = RemoteUpdate.new({ filesystem = fs, fsx = Fsx, result = Result, u
 local remotelyInstalled = remote:install("https://example.invalid/", "/remote-installed")
 assert(remotelyInstalled.ok, remotelyInstalled.error and remotelyInstalled.error.message)
 assert(Fsx.read(fs, "/remote-installed/payload.lua") == "return 'remote'")
+assert(Fsx.read(fs, "/ralf.lua") == "return 'launcher'")
 Fsx.write(fs, "/remote-failure/keep.lua", "return 'keep'")
 local failedRemote = remote:install("https://missing.invalid/", "/remote-failure")
 assert(not failedRemote.ok)
@@ -163,6 +166,7 @@ _G.http = fakeHttp
 local bootstrapInstalled = dofile("install.lua")
 assert(bootstrapInstalled == true)
 assert(Fsx.read(fs, "/ralfie/payload.lua") == "return 'remote'")
+assert(Fsx.read(fs, "/ralf.lua") == "return 'launcher'")
 fs.move("/installed", "/installed.previous")
 local recoveredUpdate = updater:recover("/installed")
 assert(recoveredUpdate.ok, recoveredUpdate.error and recoveredUpdate.error.message)

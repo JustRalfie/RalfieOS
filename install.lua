@@ -71,6 +71,10 @@ local function safeRuntimePath(path)
   return type(path) == "string" and path:sub(1, 1) ~= "/" and not path:find("..", 1, true)
 end
 
+local function safeLauncher(entry)
+  return type(entry) == "table" and safeRuntimePath(entry.source) and type(entry.target) == "string" and entry.target:sub(1, 1) == "/" and not entry.target:find("..", 1, true)
+end
+
 local function hasSpace(bytes)
   if not fs.getFreeSpace then return true end
   local measured, free = pcall(fs.getFreeSpace, "/")
@@ -95,6 +99,9 @@ if not ran or type(manifest) ~= "table" or type(manifest.version) ~= "string" or
 end
 for _, relativePath in ipairs(manifest.files) do
   if not safeRuntimePath(relativePath) then return fail("downloaded manifest contains an unsafe path") end
+end
+for _, launcher in ipairs(manifest.launchers or {}) do
+  if not safeLauncher(launcher) then return fail("downloaded manifest contains an unsafe launcher") end
 end
 
 local stagingRoot = TARGET_ROOT .. ".staging"
@@ -143,6 +150,17 @@ if not activated then
   return fail("unable to activate staged installation: " .. tostring(activateErr))
 end
 remove(backupRoot)
+for _, launcher in ipairs(manifest.launchers or {}) do
+  local source = join(TARGET_ROOT, launcher.source)
+  local opened, handleOrError = pcall(fs.open, source, "r")
+  if not opened then return fail("runtime installed but shell launcher could not be read: " .. tostring(handleOrError)) end
+  local handle = handleOrError
+  local read, contentOrError = pcall(handle.readAll)
+  pcall(handle.close)
+  if not read then return fail("runtime installed but shell launcher could not be read: " .. tostring(contentOrError)) end
+  local wrote, writeErr = writeFile(launcher.target, contentOrError)
+  if not wrote then return fail("runtime installed but shell launcher could not be written: " .. tostring(writeErr)) end
+end
 print("RalfieOS " .. manifest.version .. " installed at /ralfie")
 print("Start it with: dofile(\"/ralfie/start.lua\")")
 return true

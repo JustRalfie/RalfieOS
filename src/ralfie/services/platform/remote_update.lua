@@ -8,6 +8,10 @@ local function safePath(path)
   return type(path) == "string" and path:sub(1, 1) ~= "/" and not path:find("..", 1, true)
 end
 
+local function safeLauncher(entry)
+  return type(entry) == "table" and safePath(entry.source) and type(entry.target) == "string" and entry.target:sub(1, 1) == "/" and not entry.target:find("..", 1, true)
+end
+
 function RemoteUpdate.new(options)
   local service = {
     filesystem = assert(options.filesystem, "remote updater requires filesystem"),
@@ -47,6 +51,9 @@ function RemoteUpdate.new(options)
       if not safePath(path) then
         return self.result.fail("REMOTE.INVALID_MANIFEST", "Downloaded manifest contains an unsafe path", { context = { path = path } })
       end
+    end
+    for _, launcher in ipairs(manifest.launchers or {}) do
+      if not safeLauncher(launcher) then return self.result.fail("REMOTE.INVALID_MANIFEST", "Downloaded manifest contains an unsafe launcher") end
     end
     return self.result.ok(manifest)
   end
@@ -97,7 +104,15 @@ function RemoteUpdate.new(options)
         return self.result.fail("REMOTE.VERIFY_FAILED", "A staged file is missing", { context = { path = relativePath } })
       end
     end
-    return self.updater:activateStaged(targetRoot, stagingRoot, manifest.version)
+    local activated = self.updater:activateStaged(targetRoot, stagingRoot, manifest.version)
+    if not activated.ok then return activated end
+    for _, launcher in ipairs(manifest.launchers or {}) do
+      local copied, copyErr = self.fsx.copyFile(self.filesystem, join(targetRoot, launcher.source), launcher.target)
+      if not copied then
+        return self.result.fail("REMOTE.LAUNCHER_FAILED", "Runtime installed but shell launcher could not be updated", { context = { target = launcher.target, detail = copyErr } })
+      end
+    end
+    return activated
   end
 
   return service

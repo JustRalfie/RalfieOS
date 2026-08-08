@@ -36,6 +36,10 @@ First startup creates `/ralfie-data/config/config.lua` from built-in defaults an
 
 An application directory beneath `/ralfie/apps` must contain `manifest.lua` returning an `id` and an `entry` path. The entry module must return a table exposing `start(context)`. The loader rejects duplicate IDs and malformed exports. No such application is included in this release.
 
+## Launcher
+
+After a normal install or update, type `ralf` from the computer's root shell to open the RalfieOS menu. `RalfieOS` is also installed as a root-shell launch command. The menu currently exposes Mining, Update, and Exit only; Mining exposes Tunnel Miner and Back.
+
 ## Update source contract
 
 Run `dofile("/ralfie/update.lua")` to update an installed system from the same GitHub source. Both install paths retain `/ralfie-data`, check free space when available, and preserve rollback data until staged activation succeeds. If an interruption leaves `/ralfie.previous` while `/ralfie` is absent, restore it with `move /ralfie.previous /ralfie` before starting again. Downloads are verified for completeness and staged byte writes, but GitHub branch contents are not cryptographically authenticated.
