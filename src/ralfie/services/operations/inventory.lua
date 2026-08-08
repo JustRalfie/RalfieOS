@@ -25,6 +25,11 @@ function Inventory.new(options)
     return outcome
   end
 
+  function inventory:isFuel(slot)
+    if self:count(slot) == 0 then return result.ok(false) end
+    return self:withSlot(slot, function() return result.ok(adapter:canRefuel()) end)
+  end
+
   return inventory
 end
 

@@ -20,7 +20,7 @@ local function mockTurtle(options)
     torch_placements = 0, dropped = {}, forward_failures = options.forward_failures or 0,
     permanent_failure = options.permanent_failure, falling_blocks = options.falling_blocks or 0,
     torch_place_failures = options.torch_place_failures or 0, heading = 0, turns = 0, x = 0, y = 0, z = 0,
-    torch_positions = {},
+    torch_positions = {}, fuel_slots = options.fuel_slots or { [15] = true }, fuel_probes = 0,
   }
   local function move(direction)
     state.moves = state.moves + 1
@@ -79,7 +79,10 @@ local function mockTurtle(options)
     getFuelLevel = function() return state.fuel end,
     getFuelLimit = function() return 10000 end,
     refuel = function(count)
-      if count == 0 then return state.items[state.selected] and state.items[state.selected] > 0 end
+      if count == 0 then
+        state.fuel_probes = state.fuel_probes + 1
+        return state.fuel_slots[state.selected] == true and (state.items[state.selected] or 0) > 0
+      end
       if not state.items[state.selected] or state.items[state.selected] < count then return false, "no fuel" end
       state.items[state.selected] = state.items[state.selected] - count
       state.fuel = state.fuel + (count * state.fuel_per_item)
@@ -162,9 +165,22 @@ local refuelled, refuelledState = run({ distance = 1, fuel = 0, fuel_per_item = 
 assert(refuelled.ok)
 assert(refuelledState.items[15] == 1)
 
-local mixedFuel, mixedFuelState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [2] = 3, [15] = 0, [16] = 2 } })
+local mixedFuel, mixedFuelState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [2] = 3, [15] = 0, [16] = 2 }, fuel_slots = { [2] = true } })
 assert(mixedFuel.ok)
-assert(mixedFuelState.dropped[2] == 1)
+assert(mixedFuelState.items[2] == 1)
+
+local fuelPreserved, fuelPreservedState = run({
+  distance = 1, items = { [1] = 9, [2] = 4, [3] = 5, [4] = 6, [15] = 7, [16] = 2 },
+  fuel_slots = { [2] = true, [3] = true, [4] = true, [15] = true },
+})
+assert(fuelPreserved.ok)
+assert(fuelPreservedState.items[2] == 4) -- coal outside the configured fuel slot
+assert(fuelPreservedState.items[3] == 5) -- charcoal
+assert(fuelPreservedState.items[4] == 6) -- another valid burnable fuel
+assert(fuelPreservedState.dropped[1] == 9) -- non-fuel mined loot
+assert(fuelPreservedState.items[15] == 7) -- configured fuel slot
+assert(fuelPreservedState.items[16] == 2) -- torch slot
+assert(fuelPreservedState.fuel_probes >= 4)
 
 local falling, fallingState = run({ distance = 1, falling_blocks = 2, items = { [15] = 10, [16] = 2 } })
 assert(falling.ok and fallingState.digs >= 2)

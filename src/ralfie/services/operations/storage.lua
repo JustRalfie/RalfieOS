@@ -17,10 +17,15 @@ function Storage.new(options)
     local failedDrop
     for slot = 1, 16 do
       if not reserved[slot] and inventory:count(slot) > 0 then
-        local dropped = inventory:withSlot(slot, function() return adapter:drop("forward") end)
-        if not dropped.ok then
-          failedDrop = dropped
-          if logger then logger:warn("storage.drop_failed", { slot = slot, reason = dropped.error.message }) end
+        local fuel = inventory:isFuel(slot)
+        if not fuel.ok then
+          if logger then logger:warn("storage.fuel_probe_failed", { slot = slot, reason = fuel.error.message }) end
+        elseif not fuel.value then
+          local dropped = inventory:withSlot(slot, function() return adapter:drop("forward") end)
+          if not dropped.ok then
+            failedDrop = dropped
+            if logger then logger:warn("storage.drop_failed", { slot = slot, reason = dropped.error.message }) end
+          end
         end
       end
     end
