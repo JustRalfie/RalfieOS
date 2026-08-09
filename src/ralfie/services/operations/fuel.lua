@@ -27,11 +27,18 @@ function Fuel.new(options)
     return ordered
   end
 
+  -- Keep every fuel decision behind Inventory:isFuel(), which probes the
+  -- selected stack with turtle.refuel(0). This intentionally does not use a
+  -- name whitelist: CC:Tweaked remains the authority on what is valid fuel.
+  local function usableFuel(slot)
+    return inventory:isFuel(slot)
+  end
+
   function fuel:inventoryFuel(options)
     local count, items, label = 0, {}, nil
     for _, slot in ipairs(orderedSlots(options)) do
       if inventory:count(slot) > 0 then
-        local valid = inventory:isFuel(slot)
+        local valid = usableFuel(slot)
         if not valid.ok then return valid end
         if valid.value then
           count = count + inventory:count(slot)
@@ -51,19 +58,16 @@ function Fuel.new(options)
     if adapter:fuelLevel() >= required then return result.ok(adapter:fuelLevel()) end
     for _, slot in ipairs(orderedSlots(options)) do
       if inventory:count(slot) > 0 then
-        local refuelled = inventory:withSlot(slot, function()
-          if not adapter:canRefuel() then return result.ok(false) end
-          return adapter:refuel(1)
-        end)
-        if not refuelled.ok then return refuelled end
-        if refuelled.value and logger then logger:info("fuel.consumed", { slot = slot, level = adapter:fuelLevel() }) end
-        while adapter:fuelLevel() < required and inventory:count(slot) > 0 do
-          local nextFuel = inventory:withSlot(slot, function()
-            if not adapter:canRefuel() then return result.ok(false) end
-            return adapter:refuel(1)
-          end)
-          if not nextFuel.ok or not nextFuel.value then break end
-          if logger then logger:info("fuel.consumed", { slot = slot, level = adapter:fuelLevel() }) end
+        local valid = usableFuel(slot)
+        if not valid.ok then return valid end
+        if valid.value then
+          while adapter:fuelLevel() < required and inventory:count(slot) > 0 do
+            local refuelled = inventory:withSlot(slot, function()
+              return adapter:refuel(1)
+            end)
+            if not refuelled.ok or not refuelled.value then break end
+            if logger then logger:info("fuel.consumed", { slot = slot, level = adapter:fuelLevel() }) end
+          end
         end
         if adapter:fuelLevel() >= required then return result.ok(adapter:fuelLevel()) end
       end

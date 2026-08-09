@@ -5,7 +5,20 @@ local Fuel = dofile("src/ralfie/services/operations/fuel.lua")
 
 local function build(options)
   options = options or {}
-  local state = { selected = 1, fuel = options.fuel or 0, consumed = {}, items = options.items or {}, fuel_slots = options.fuel_slots or {}, details = options.details or {} }
+  local state = {
+    selected = 1,
+    fuel = options.fuel or 0,
+    consumed = {},
+    items = options.items or {},
+    fuel_slots = options.fuel_slots or {},
+    fuel_ids = options.fuel_ids or {},
+    details = options.details or {},
+  }
+  local function isFuel(slot)
+    local detail = state.details[slot]
+    return (state.fuel_slots[slot] == true or (detail and state.fuel_ids[detail.name] == true))
+      and (state.items[slot] or 0) > 0
+  end
   local turtle = {
     select = function(slot) state.selected = slot; return true end,
     getSelectedSlot = function() return state.selected end,
@@ -14,8 +27,8 @@ local function build(options)
     getFuelLevel = function() return state.fuel end,
     getFuelLimit = function() return 10000 end,
     refuel = function(count)
-      if count == 0 then return state.fuel_slots[state.selected] == true and (state.items[state.selected] or 0) > 0 end
-      if state.fuel_slots[state.selected] ~= true or (state.items[state.selected] or 0) < count then return false, "not fuel" end
+      if count == 0 then return isFuel(state.selected) end
+      if not isFuel(state.selected) or (state.items[state.selected] or 0) < count then return false, "not fuel" end
       state.items[state.selected] = state.items[state.selected] - count
       state.consumed[state.selected] = (state.consumed[state.selected] or 0) + count
       state.fuel = state.fuel + (count * 80)
@@ -44,5 +57,35 @@ assert(outsideState.items[2] == 1 and outsideState.items[5] == 7, "valid coal is
 local empty = build({ items = { [5] = 7 }, details = { [5] = { name = "minecraft:diamond" } } })
 local noFuel = empty:ensureRuntime({ minimum = 1, reserve = 20, fuel_slot = 15, protected_slots = { 14, 16 } })
 assert(not noFuel.ok and noFuel.error.code == "FUEL.OUT_OF_FUEL" and noFuel.error.context.inventory_fuel == 0)
+
+local charcoal, charcoalState = build({
+  items = { [2] = 37, [14] = 64, [16] = 32 },
+  fuel_ids = { ["minecraft:charcoal"] = true, ["minecraft:coal"] = true },
+  details = {
+    [2] = { name = "minecraft:charcoal" },
+    [14] = { name = "minecraft:coal" },
+    [16] = { name = "minecraft:torch" },
+  },
+})
+local charcoalAvailable = charcoal:inventoryFuel({ fuel_slot = 15, protected_slots = { 14, 16 } })
+assert(charcoalAvailable.ok and charcoalAvailable.value.count == 37 and charcoalAvailable.value.label == "minecraft:charcoal", "charcoal must appear in generic inventory fuel diagnostics")
+local charcoalRuntime = charcoal:ensureRuntime({ minimum = 1, reserve = 20, fuel_slot = 15, protected_slots = { 14, 16 } })
+assert(charcoalRuntime.ok and charcoalState.fuel == 80 and charcoalState.consumed[2] == 1, "runtime movement refuel must consume valid charcoal outside the configured fuel slot")
+assert(charcoalState.items[14] == 64 and charcoalState.items[16] == 32, "runtime refuel must protect filler and torch slots even when their contents are fuel")
+
+local blaze, blazeState = build({
+  items = { [2] = 3, [5] = 7 },
+  fuel_ids = { ["minecraft:blaze_rod"] = true },
+  details = { [2] = { name = "minecraft:blaze_rod" }, [5] = { name = "minecraft:diamond" } },
+})
+assert(blaze:ensure(80, 16, 15, 14).ok and blazeState.consumed[2] == 1 and blazeState.items[5] == 7, "pre-job fuel checks must use the same generic probe and preserve non-fuel items")
+
+local priority, priorityState = build({
+  items = { [2] = 2, [15] = 2 },
+  fuel_ids = { ["minecraft:coal"] = true, ["minecraft:charcoal"] = true },
+  details = { [2] = { name = "minecraft:coal" }, [15] = { name = "minecraft:charcoal" } },
+})
+assert(priority:ensureRuntime({ minimum = 1, reserve = 20, fuel_slot = 15, protected_slots = { 14, 16 } }).ok)
+assert(priorityState.consumed[15] == 1 and priorityState.items[2] == 2, "the configured fuel slot must remain the first generic-fuel candidate")
 
 print("fuel tests passed")
