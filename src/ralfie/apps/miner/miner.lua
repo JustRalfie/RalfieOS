@@ -237,7 +237,7 @@ function Miner.start(context, options)
     runtime_fuel = { minimum = 1, reserve = runtimeFuelReserve, fuel_slot = fuelSlot, protected_slots = { torchSlot, fillerSlot } },
     torch_positions = placedTorches, torch_slot = torchSlot, on_torch_changed = function() checkpoint(navigation:position()) end,
   })
-  local tunnelPattern = TunnelPattern.new({ navigation = navigation, world = world, result = resultModule, movement_retries = movementRetries })
+  local tunnelPattern = TunnelPattern.new({ adapter = adapter, navigation = navigation, world = world, result = resultModule, movement_retries = movementRetries })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
     navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = resultModule,
@@ -334,20 +334,18 @@ function Miner.start(context, options)
     view.slice = step - 1; minerUi:status("MINE", "Slice " .. step .. "/" .. distance, false)
     local advanced = world:move("forward", movementRetries)
     if not advanced.ok then return finishMiner(advanced) end
-    if tunnelWidth == 3 and tunnelHeight == 3 then
-      local center = world:clearColumn()
-      if not center.ok then return finishMiner(center) end
-      local left = excavateSide(3)
-      if not left.ok then return finishMiner(left) end
-      local right = excavateSide(1)
-      if not right.ok then return finishMiner(right) end
-    else
-      local cleared = tunnelPattern:clearSlice(tunnelWidth, tunnelHeight)
-      if not cleared.ok then return finishMiner(cleared) end
+    local sliceAnchor = navigation:position()
+    local begun = ore:beginTunnelBoundaryDiscovery({ width = tunnelWidth, height = tunnelHeight, anchor = sliceAnchor })
+    if not begun.ok then return finishMiner(begun) end
+    local cleared = tunnelPattern:clearSlice(tunnelWidth, tunnelHeight, { observer = begun.value })
+    if not cleared.ok then return finishMiner(cleared) end
+    local restoredSlice = navigation:position()
+    if restoredSlice.x ~= sliceAnchor.x or restoredSlice.y ~= sliceAnchor.y or restoredSlice.z ~= sliceAnchor.z or restoredSlice.heading ~= sliceAnchor.heading then
+      return finishMiner(resultModule.fail("MINER.SLICE_ANCHOR_MISMATCH", "Tunnel slice did not return to its center anchor"))
     end
-    local original = navigation:face(0)
-    if not original.ok then return finishMiner(original) end
-    local chased = ore:mineSliceBoundary({ width = tunnelWidth, height = tunnelHeight, movement_retries = movementRetries })
+    local discovered = begun.value:finish()
+    if not discovered.ok then return finishMiner(discovered) end
+    local chased = ore:chaseTargets(discovered.value.targets, { anchor = sliceAnchor })
     if not chased.ok then return finishMiner(chased) end
     local unloaded = unloadIfNeeded(step, chased.value.inventory_full and "ore" or "tunnel")
     if not unloaded.ok then return finishMiner(unloaded) end

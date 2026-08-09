@@ -22,8 +22,17 @@ local function mockTurtle(options)
     permanent_failure = options.permanent_failure, falling_blocks = options.falling_blocks or 0,
     torch_place_failures = options.torch_place_failures or 0, heading = 0, turns = 0, x = 0, y = 0, z = 0,
     torch_positions = {}, fuel_slots = options.fuel_slots or { [15] = true }, fuel_probes = 0,
-    enforce_fuel = options.enforce_fuel, force_zero_after = options.force_zero_after,
+    enforce_fuel = options.enforce_fuel, force_zero_after = options.force_zero_after, blocks = {},
   }
+  for _, block in ipairs(options.blocks or {}) do state.blocks[block.x .. ":" .. block.y .. ":" .. block.z] = { name = block.name, tags = block.tags } end
+  local function target(direction)
+    if direction == "up" then return state.x, state.y + 1, state.z end
+    if direction == "down" then return state.x, state.y - 1, state.z end
+    if state.heading == 0 then return state.x + 1, state.y, state.z end
+    if state.heading == 1 then return state.x, state.y, state.z + 1 end
+    if state.heading == 2 then return state.x - 1, state.y, state.z end
+    return state.x, state.y, state.z - 1
+  end
   local function move(direction)
     state.moves = state.moves + 1
     if state.permanent_failure then return false, "blocked" end
@@ -71,11 +80,25 @@ local function mockTurtle(options)
     forward = function() return move("forward") end, up = function() return move("up") end, down = function() return move("down") end,
     turnLeft = function() state.heading = (state.heading + 3) % 4; state.turns = state.turns + 1; return true end,
     turnRight = function() state.heading = (state.heading + 1) % 4; state.turns = state.turns + 1; return true end,
-    inspect = function() return state.falling_blocks > 0 end,
-    inspectUp = function() return false end, inspectDown = function() return false end,
-    dig = function() state.digs = state.digs + 1; if state.falling_blocks > 0 then state.falling_blocks = state.falling_blocks - 1 end; return true end,
-    digUp = function() state.digs = state.digs + 1; return true end,
-    digDown = function() state.digs = state.digs + 1; return true end,
+    inspect = function()
+      local x, y, z = target("forward"); local block = state.blocks[x .. ":" .. y .. ":" .. z]
+      if block then return true, block end
+      return state.falling_blocks > 0
+    end,
+    inspectUp = function()
+      local x, y, z = target("up"); local block = state.blocks[x .. ":" .. y .. ":" .. z]
+      return block and true or false, block
+    end,
+    inspectDown = function()
+      local x, y, z = target("down"); local block = state.blocks[x .. ":" .. y .. ":" .. z]
+      return block and true or false, block
+    end,
+    dig = function()
+      local x, y, z = target("forward"); state.blocks[x .. ":" .. y .. ":" .. z] = nil
+      state.digs = state.digs + 1; if state.falling_blocks > 0 then state.falling_blocks = state.falling_blocks - 1 end; return true
+    end,
+    digUp = function() local x, y, z = target("up"); state.blocks[x .. ":" .. y .. ":" .. z] = nil; state.digs = state.digs + 1; return true end,
+    digDown = function() local x, y, z = target("down"); state.blocks[x .. ":" .. y .. ":" .. z] = nil; state.digs = state.digs + 1; return true end,
     place = placeTorch, placeUp = function() return true end, placeDown = function() return true end,
     select = function(slot) state.selected = slot; return true end,
     getSelectedSlot = function() return state.selected end,
@@ -134,7 +157,7 @@ local successful, successfulState = run({ distance = 2, items = { [1] = 12, [15]
 assert(successful.ok, successful.error and successful.error.message)
 assert(successful.value.position.x == 0 and successful.value.position.y == 0 and successful.value.position.z == 0)
 assert(successful.value.position.heading == 0)
-assert(successfulState.moves >= 40)
+assert(successfulState.moves >= 36)
 assert(successfulState.dropped[1] == 12)
 assert(successfulState.items[15] == 10 and successfulState.items[16] == 8)
 
@@ -208,7 +231,7 @@ end
 local exhausted, exhaustedState = run({ distance = 1, fuel = 74, enforce_fuel = true, force_zero_after = 1, items = { [15] = 0, [16] = 2 } })
 assert(not exhausted.ok and exhausted.error.code == "FUEL.OUT_OF_FUEL" and exhaustedState.fuel == 0)
 
-local sliceBoundaryCalls = 0
+local observerStarts, observerCalls, chaseTargetCalls, oldScannerCalls = {}, {}, 0, 0
 local fakeOre = {
   new = function()
     return {
@@ -216,16 +239,47 @@ local fakeOre = {
         error("Miner must not use per-column ore scans after slice discovery is enabled")
       end,
       mineSliceBoundary = function()
-        sliceBoundaryCalls = sliceBoundaryCalls + 1
+        oldScannerCalls = oldScannerCalls + 1
+        error("Miner must not use the movement-based slice scanner")
+      end,
+      beginTunnelBoundaryDiscovery = function(_, options)
+        table.insert(observerStarts, options)
+        local observer = {
+          observe = function(_, observation)
+            table.insert(observerCalls, observation)
+            return Result.ok(true)
+          end,
+          finish = function() return Result.ok({ anchor = options.anchor, targets = {} }) end,
+        }
+        return Result.ok(observer)
+      end,
+      chaseTargets = function(_, targets, options)
+        chaseTargetCalls = chaseTargetCalls + 1
+        assert(#targets == 0 and options.anchor)
         return Result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = false, abandoned = false })
       end,
       boundaryMovementEstimate = function() return 32 end,
     }
   end,
 }
-local minerCompatibility = run({
-  distance = 1, items = { [15] = 10, [16] = 2 }, module_overrides = { ["ralfie.services.operations.ore"] = fakeOre },
-})
-assert(minerCompatibility.ok and sliceBoundaryCalls == 1, "Miner must use one slice-level ore discovery call per completed tunnel slice")
+for _, size in ipairs({ 3, 5, 9 }) do
+  local minerCompatibility = run({
+    distance = 1, width = size, height = size, items = { [15] = 10, [16] = 2 }, module_overrides = { ["ralfie.services.operations.ore"] = fakeOre },
+  })
+  assert(minerCompatibility.ok, minerCompatibility.error and minerCompatibility.error.message)
+end
+assert(#observerStarts == 3 and chaseTargetCalls == 3 and oldScannerCalls == 0, "Miner must use the opportunistic observer pipeline")
+assert(#observerCalls == 18 + 40 + 108, "Miner must receive complete 3x3/5x5/9x9 boundary observations")
+
+for _, case in ipairs({
+  { size = 3, block = { x = 2, y = 0, z = 0, name = "minecraft:redstone_ore" } },
+  { size = 5, block = { x = 1, y = 4, z = -3, name = "alltheores:uranium_ore" } },
+  { size = 9, block = { x = 1, y = 9, z = 0, name = "minecraft:deepslate_redstone_ore" } },
+}) do
+  local mined, minedState = run({ distance = 1, width = case.size, height = case.size, fuel = 10000, items = { [15] = 10, [16] = 2 }, blocks = { case.block } })
+  assert(mined.ok, mined.error and mined.error.message)
+  assert(minedState.digs >= 1 and minedState.blocks[case.block.x .. ":" .. case.block.y .. ":" .. case.block.z] == nil, "opportunistic observer must chase " .. case.block.name)
+  assert(mined.value.position.x == 0 and mined.value.position.y == 0 and mined.value.position.z == 0 and mined.value.position.heading == 0)
+end
 
 print("miner tests passed")

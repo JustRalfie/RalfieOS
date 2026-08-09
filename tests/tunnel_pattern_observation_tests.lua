@@ -65,6 +65,7 @@ for _, size in ipairs({ 3, 5, 9 }) do
   local cleared = pattern:clearSlice(size, size, { observer = observer })
   assert(cleared.ok)
   assert(state.moves == baselineState.moves, "observer must not add moves for " .. size .. "x" .. size)
+  assert(state.turns - baselineState.turns == 2 * size * (size - 1), "observer turn baseline changed for " .. size .. "x" .. size)
   assert(state.digs == 0 and state.inspections == (size * size) + (size * 3))
   assert(state.x == 0 and state.y == 0 and state.z == 0 and state.heading == 0)
   local expected, seen = expectedBoundary(size), {}

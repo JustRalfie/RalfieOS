@@ -526,6 +526,41 @@ function Ore.new(options)
     return result.ok({ anchor = anchor })
   end
 
+  function ore:chaseTargets(targets, options)
+    options = options or {}
+    local anchor = copy(options.anchor or navigation:position())
+    if type(targets) ~= "table" then return result.fail("ORE.INVALID_TARGETS", "Discovered ore targets are invalid") end
+    if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
+      if logger then logger:warn("ore.inventory_full", { collected = 0, tunnel_position = anchor }) end
+      if ui then ui:status("ORE", "Inventory full; returning to tunnel", false) end
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      return result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = true, abandoned = false })
+    end
+
+    local processed = options.processed or {}
+    local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
+    for _, target in ipairs(targets) do
+      if not processed[target.key] then
+        local positioned = returnTo(target.origin)
+        if not positioned.ok then
+          local restored = restoreTunnel(anchor)
+          if not restored.ok then return restored end
+          return positioned
+        end
+        local chased = ore:chase(target, { anchor = anchor, processed = processed, max_size = options.max_size, should_stop = options.should_stop })
+        if not chased.ok then return chased end
+        collected = collected + chased.value.collected
+        detectedName = detectedName or chased.value.ore_type
+        limitReached = limitReached or chased.value.limit_reached
+        inventoryFull = inventoryFull or chased.value.inventory_full
+        abandoned = abandoned or chased.value.abandoned
+        if limitReached or inventoryFull or abandoned then break end
+      end
+    end
+    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+  end
+
   function ore:mineExposed()
     local anchor = copy(navigation:position())
     if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
@@ -577,27 +612,7 @@ function Ore.new(options)
     local discovered = ore:discoverTunnelBoundary({ anchor = anchor, width = options.width, height = options.height, movement_retries = options.movement_retries })
     if not discovered.ok then return discovered end
 
-    local processed = options.processed or {}
-    local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
-    for _, target in ipairs(discovered.value.targets) do
-      if not processed[target.key] then
-        local positioned = returnTo(target.origin)
-        if not positioned.ok then
-          local restored = restoreTunnel(anchor)
-          if not restored.ok then return restored end
-          return positioned
-        end
-        local chased = ore:chase(target, { anchor = anchor, processed = processed, max_size = options.max_size, should_stop = options.should_stop })
-        if not chased.ok then return chased end
-        collected = collected + chased.value.collected
-        detectedName = detectedName or chased.value.ore_type
-        limitReached = limitReached or chased.value.limit_reached
-        inventoryFull = inventoryFull or chased.value.inventory_full
-        abandoned = abandoned or chased.value.abandoned
-        if limitReached or inventoryFull or abandoned then break end
-      end
-    end
-    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+    return ore:chaseTargets(discovered.value.targets, { anchor = anchor, processed = options.processed, max_size = options.max_size, should_stop = options.should_stop })
   end
 
   function ore:mineTunnelBoundary(options)
