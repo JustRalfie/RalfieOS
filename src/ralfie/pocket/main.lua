@@ -6,18 +6,22 @@ local Ui = dofile(root .. "/pocket/ui.lua")
 
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
-local fleet, selected, detail, info, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, false, nil, nil, nil
+local fleet, selected, screen, detailSelection, settingsSelection, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, "fleet", 1, 1, nil, nil, nil
 local function now() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
 local function selectOnline()
-  if selected and fleet:canCommand(selected) then return end
+  -- Keep a selected offline device visible so its cached Details screen remains reachable.
+  if selected and fleet.miners[selected] then return end
   for _, miner in ipairs(fleet:list()) do if miner.online then selected = miner.id; return end end
   selected = nil
 end
 local function redraw()
   selectOnline()
-  if detail and selected and fleet.miners[selected] then
-    if info then Ui.info(term, fleet.miners[selected]) else Ui.command(term, fleet.miners[selected], command and command.state) end
-  else Ui.render(term, fleet, selected, updateBatch) end
+  local miner = selected and fleet.miners[selected]
+  if screen == "detail" and miner then Ui.command(term, miner, detailSelection, command and command.state)
+  elseif screen == "details" and miner then Ui.details(term, miner)
+  elseif screen == "settings" and miner then Ui.settings(term, miner, settingsSelection)
+  elseif screen == "update" then Ui.update(term, fleet, updateBatch, 1)
+  else Ui.render(term, fleet, selected) end
 end
 local function finishFleetUpdate()
   if not updateBatch or updateBatch.local_started then return end
@@ -82,12 +86,10 @@ local function requestDeviceInfo()
     network:send(selected, Protocol.types.DEVICE_INFO_REQUEST, { target_id = selected, issued_by = network:identity().id })
   end
 end
-local function configureDevice()
+local function configureDevice(choice)
   local miner = selected and fleet.miners[selected]
   if not miner or not miner.online or not miner.device_info then return end
-  local choice = Ui.input(term, "DEVICE SETUP", "1 Name  2 Fleet  3 Auto", "")
-  if choice == nil then return end
-  local key = choice == "1" and "device_name" or (choice == "2" and "fleet_name" or (choice == "3" and "auto_start" or nil))
+  local key = choice == 1 and "device_name" or (choice == 2 and "fleet_name" or (choice == 3 and "auto_start" or nil))
   if not key then return end
   local raw = Ui.input(term, "DEVICE SETUP", key == "auto_start" and "Auto-start [Y/N]" or "New value", "")
   if raw == nil then return end
@@ -132,15 +134,28 @@ while true do
     end
     timer = os.startTimer(1)
   elseif event == "key" then
-    if detail and Ui.isBackKey(a) then
-      if info then info = false else detail = false end
-    elseif detail and info and a == keys.e then configureDevice()
-    elseif detail and not info and a == keys.s and Ui.userState(selected and fleet.miners[selected]) == "READY" then
-      info = true; requestDeviceInfo()
-    elseif detail and not info and a == keys.i then
-      info = true; requestDeviceInfo()
-    elseif detail and not info and a == keys.j then assignJob()
-    elseif detail and not info and selected and fleet:canCommand(selected) then
+    if screen == "fleet" and a == keys.m then return true
+    elseif screen == "fleet" and a == keys.a and not updateBatch then requestFleetUpdate(); screen = "update"
+    elseif screen == "update" and Ui.isBackKey(a) then screen = "fleet"
+    elseif screen == "details" and Ui.isBackKey(a) then screen = "detail"
+    elseif screen == "settings" and Ui.isBackKey(a) then screen = "detail"
+    elseif screen == "settings" and (a == keys.up or a == keys.down) then settingsSelection = math.max(1, math.min(4, settingsSelection + (a == keys.up and -1 or 1)))
+    elseif screen == "settings" and a == keys.enter then if settingsSelection == 4 then screen = "detail" else configureDevice(settingsSelection) end
+    elseif screen == "detail" and Ui.isBackKey(a) then screen = "fleet"
+    elseif screen == "detail" and (a == keys.up or a == keys.down) then
+      local count = #Ui.deviceActions(selected and fleet.miners[selected]); detailSelection = math.max(1, math.min(count, detailSelection + (a == keys.up and -1 or 1)))
+    elseif screen == "detail" and a == keys.enter then
+      local action = Ui.deviceActions(fleet.miners[selected])[detailSelection]
+      if action.id == "back" then screen = "fleet"
+      elseif action.id == "details" then screen = "details"; requestDeviceInfo()
+      elseif action.id == "settings" then screen = "settings"; settingsSelection = 1; requestDeviceInfo()
+      elseif action.id == "job" then assignJob()
+      elseif fleet:canCommand(selected) then
+        local id = tostring(os.epoch("utc")) .. "-" .. selected
+        command = { id = id, kind = action.id, target_id = selected, sent_at = now(), state = "SENT" }
+        network:send(selected, Protocol.types.COMMAND, { command_id = id, command = action.id, target_id = selected, issued_by = network:identity().id })
+      end
+    elseif screen == "detail" and selected and fleet:canCommand(selected) then
       local keyNames = { [keys.r] = "r", [keys.u] = "u", [keys.p] = "p", [keys.c] = "c" }
       local kind = Ui.commandForKey(fleet.miners[selected], keyNames[a])
       if kind then
@@ -148,9 +163,8 @@ while true do
         command = { id = id, kind = kind, target_id = selected, sent_at = now(), state = "SENT" }
         network:send(selected, Protocol.types.COMMAND, { command_id = id, command = kind, target_id = selected, issued_by = network:identity().id })
       end
-    elseif not detail and a == keys.a and not updateBatch then requestFleetUpdate()
-    elseif not detail and a == keys.enter and selected then detail = true
-    elseif not detail and (a == keys.up or a == keys.down) then
+    elseif screen == "fleet" and a == keys.enter and selected then screen = "detail"; detailSelection = 1
+    elseif screen == "fleet" and (a == keys.up or a == keys.down) then
       local miners = fleet:list(); local index = 1
       for i, miner in ipairs(miners) do if miner.id == selected then index = i end end
       index = math.max(1, math.min(#miners, index + (a == keys.up and -1 or 1))); selected = miners[index] and miners[index].id

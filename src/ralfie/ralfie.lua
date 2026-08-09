@@ -86,6 +86,8 @@ end
 
 if not profile then setupDevice() end
 
+local dashboard
+
 local function runTunnelMiner(size)
   context.ui:clear()
   context.ui:heading(size .. "x" .. size .. " Tunnel Miner")
@@ -119,10 +121,8 @@ local function runTunnelMiner(size)
 end
 
 local function tunnelMenu()
-  local choice = menu.choose(context.ui, "Tunnel Miner", {
-    { id = "3", label = "3x3 Tunnel", description = { "Standard tunnel miner." } },
-    { id = "5", label = "5x5 Tunnel", description = { "Large tunnel miner." } },
-    { id = "9", label = "9x9 Tunnel", description = { "Extra-large tunnel miner." } },
+  local choice = menu.choose(context.ui, "NEW TUNNEL", {
+    { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" },
     { id = "back", label = "Back" },
   })
   local size = tonumber(choice)
@@ -131,10 +131,10 @@ end
 
 local function miningMenu()
   while true do
-    local choice = menu.choose(context.ui, "Mining", {
+    local choice = menu.choose(context.ui, "MINING", {
       {
         id = "tunnel_miner",
-        label = "Tunnel Miner",
+        label = "New Tunnel",
         description = {
           "Choose a 3x3, 5x5, or 9x9 tunnel.",
           "Each uses the existing mining engine.",
@@ -148,9 +148,11 @@ local function miningMenu()
           "one remote mining-distance job at a time.",
         },
       },
+      { id = "status", label = "Miner Status" },
       { id = "back", label = "Back" },
     })
     if choice == "tunnel_miner" then tunnelMenu() end
+    if choice == "status" then dashboard() end
     if choice == "fleet_worker" then
       local worker, loadError = safeLoad("ralfie.apps.miner.fleet_worker")
       if not worker then showResult("ERROR", "Fleet Worker failed to load: " .. loadError, true)
@@ -180,7 +182,7 @@ local function runFleetCommand()
   if not ran then showResult("ERROR", "Fleet Command crashed: " .. result, true) end
 end
 
-local function dashboard()
+dashboard = function()
   context.ui:clear(); context.ui:heading("DEVICE DASHBOARD")
   context.ui:line("Device: " .. (profile and profile.device_name or "Unconfigured"))
   context.ui:line("Type: " .. deviceInfo.type)
@@ -194,24 +196,73 @@ local function updateSystem()
   if not updated or not updated.ok then context.ui:status("UPDATE", "Update failed; see message above.", true) end
 end
 
+local function settingsMenu()
+  while true do
+    local choice = menu.choose(context.ui, "SETTINGS", { { id = "device", label = "Device" }, { id = "worker", label = "Worker" }, { id = "back", label = "Back" } })
+    if choice == "device" then setupDevice() end
+    if choice == "worker" then showResult("SETTINGS", "Worker configuration is managed by the active worker profile.", false) end
+    if choice == "back" then return end
+  end
+end
+
+local function systemMenu()
+  while true do
+    local choice = menu.choose(context.ui, "SYSTEM", { { id = "update", label = "Update" }, { id = "info", label = "Device Information" }, { id = "setup", label = "Reconfigure" }, { id = "about", label = "About RalfieOS" }, { id = "back", label = "Back" } })
+    if choice == "update" then updateSystem() end
+    if choice == "info" then dashboard() end
+    if choice == "setup" then setupDevice() end
+    if choice == "about" then showResult("RALFIE OS", "RalfieOS 0.3", false) end
+    if choice == "back" then return end
+  end
+end
+
+local function friendlyRole(role)
+  if role == "MINING_WORKER" then return "Mining Worker" end
+  if role == "FLEET_CONTROLLER" then return "Fleet Controller" end
+  if role == "UNCONFIGURED" then return "Unconfigured" end
+  return "General"
+end
+
+local function rootMenuOptions(controller)
+  local network = deviceInfo.capabilities.wireless_modem and "ONLINE" or "NO MODEM"
+  local headers = {
+    (profile and profile.device_name or deviceInfo.type) .. "  " .. friendlyRole(profile and profile.role),
+    "Network: " .. network,
+  }
+  local footer = "Up/Down Enter"
+  if not controller and context.turtle and context.turtle.getFuelLevel then
+    local fuel = select(2, pcall(context.turtle.getFuelLevel))
+    local used = 0
+    if context.turtle.getItemCount then
+      for slot = 1, 16 do
+        local ok, count = pcall(context.turtle.getItemCount, slot)
+        if ok and count > 0 then used = used + 1 end
+      end
+    end
+    footer = "Fuel " .. tostring(fuel or "?") .. "  Inv " .. used .. "/16"
+  end
+  return { header = headers, footer = footer }
+end
+
 if profileExistedAtBoot and profile and profile.role == "MINING_WORKER" and profile.auto_start then
   runFleetWorker()
 end
+
+if profile and profile.role == "FLEET_CONTROLLER" then runFleetCommand() end
 
 while true do
   local controller = profile and profile.role == "FLEET_CONTROLLER"
   local title = "RALFIE OS 0.3 - " .. (profile and profile.device_name or deviceInfo.type)
   local choice = menu.choose(context.ui, title, controller and {
-    { id = "fleet", label = "Fleet" }, { id = "setup", label = "Device Setup" }, { id = "dashboard", label = "Devices" }, { id = "update", label = "Update" }, { id = "exit", label = "Exit" },
+    { id = "fleet", label = "Fleet" }, { id = "settings", label = "Controller Settings" }, { id = "system", label = "System" }, { id = "exit", label = "Exit" },
   } or {
-    { id = "dashboard", label = "Dashboard" }, { id = "mining", label = "Mining" }, { id = "fleet", label = "Fleet" }, { id = "setup", label = "Device Setup" }, { id = "update", label = "Update" }, { id = "exit", label = "Exit" },
-  })
-  if choice == "dashboard" then dashboard() end
+    { id = "mining", label = "Mining" }, { id = "fleet", label = "Fleet" }, { id = "settings", label = "Settings" }, { id = "system", label = "System" }, { id = "exit", label = "Exit" },
+  }, rootMenuOptions(controller))
   if choice == "mining" then miningMenu() end
   if choice == "fleet" then
     if profile and profile.role == "MINING_WORKER" then runFleetWorker() else runFleetCommand() end
   end
-  if choice == "setup" then setupDevice() end
-  if choice == "update" then updateSystem() end
+  if choice == "settings" then settingsMenu() end
+  if choice == "system" then systemMenu() end
   if choice == "exit" then return true end
 end

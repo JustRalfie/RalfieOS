@@ -115,14 +115,14 @@ local success = runScenario({
     return Result.ok(true)
   end,
 })
-assert(contains(success, "menu:Mining"))
+assert(contains(success, "menu:MINING"))
 assert(contains(success, "clear"))
 assert(contains(success, "prompt:Tunnel distance:"))
 assert(contains(success, "status:DONE:3x3 Tunnel Miner finished."))
 assert(contains(success, "prompt:[Enter/B] Back:"))
 assert(appearsBefore(success, "status:DONE:3x3 Tunnel Miner finished.", "prompt:[Enter/B] Back:"))
-assert(count(success, "menu:Mining") == 2)
-assert(count(success, "menu:Tunnel Miner") == 1)
+assert(count(success, "menu:MINING") == 2)
+assert(count(success, "menu:NEW TUNNEL") == 1)
 
 local loadFailure = runScenario({ choices = { "mining", "tunnel_miner", "3", "back", "exit" }, loadFailure = true })
 assert(contains(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable"))
@@ -164,5 +164,10 @@ assert(not contains(firstRun, "worker:start"))
 local setupBack = runScenario({ choices = { "exit" }, noProfile = true, wizardInputs = { "Steve", "y", nil, "n", "Main" }, start = function() return Result.ok(true) end })
 assert(contains(setupBack, "profile:UNCONFIGURED:false"), "wizard Back must return to the previous safe setup step")
 assert(count(setupBack, "input:Enable Fleet Worker? [Y/N]:") == 2)
+
+local hierarchy = runScenario({ choices = { "settings", "back", "system", "back", "exit" }, start = function() return Result.ok(true) end })
+assert(contains(hierarchy, "menu:SETTINGS"), "Turtle configuration must live under Settings")
+assert(contains(hierarchy, "menu:SYSTEM"), "Update and diagnostics must live under System")
+assert(not contains(hierarchy, "menu:Dashboard"), "implementation-oriented Dashboard must not be a root route")
 
 print("launcher tests passed")
