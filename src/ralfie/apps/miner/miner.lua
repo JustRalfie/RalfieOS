@@ -219,7 +219,13 @@ function Miner.start(context, options)
   local ore = Ore.new({
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = resultModule, logger = context.logger, ui = minerUi,
     max_size = maxVeinSize, additional_ids = additionalOreIds, excluded_ids = excludedOreIds, matcher = options.ore_matcher, movement_retries = movementRetries,
-    should_stop = function() return unloader:isNearlyFull() end,
+    should_stop = function() return unloader:isNearlyFull() end, fluid = fluid,
+    on_excursion = function(excursion)
+      if not job then return end
+      jobState.ore_excursion = excursion
+      jobState.operation = excursion and "ore_chasing" or "mining"
+      checkpoint(navigation:position())
+    end,
   })
 
   local torchCount = inventory:count(torchSlot)
@@ -235,6 +241,15 @@ function Miner.start(context, options)
   if not fuelReady.ok then return finishMiner(fuelReady) end
   local refilled = fluid:replenish()
   if not refilled.ok then return finishMiner(refilled) end
+  if options.recovery and jobState and jobState.ore_excursion then
+    minerUi:status("RECOVERY", "Returning to saved ore anchor", false)
+    local recovered = ore:recoverExcursion(jobState.ore_excursion)
+    if not recovered.ok then return finishMiner(recovered) end
+    jobState.ore_excursion = nil
+    jobState.operation = "mining"
+    checkpoint(navigation:position())
+    minerUi:status("RECOVERY", "Ore anchor restored", false)
+  end
 
   local function faceAndMove(heading)
     local faced = navigation:face(heading)

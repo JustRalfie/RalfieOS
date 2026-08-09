@@ -21,6 +21,10 @@ local function samePosition(left, right)
   return left.x == right.x and left.y == right.y and left.z == right.z and left.heading == right.heading
 end
 
+local function sameCoordinates(left, right)
+  return left.x == right.x and left.y == right.y and left.z == right.z
+end
+
 local function copyDirection(direction)
   return {
     name = direction.name,
@@ -30,6 +34,22 @@ local function copyDirection(direction)
     y = direction.y,
     z = direction.z,
   }
+end
+
+local function inverseDirection(from, to)
+  local x, y, z = from.x - to.x, from.y - to.y, from.z - to.z
+  for _, direction in ipairs(directions) do
+    if direction.x == x and direction.y == y and direction.z == z then return copyDirection(direction) end
+  end
+  return nil
+end
+
+local function copyBreadcrumbs(breadcrumbs)
+  local copied = {}
+  for index, crumb in ipairs(breadcrumbs or {}) do
+    copied[index] = { from = copy(crumb.from), to = copy(crumb.to), return_direction = copyDirection(crumb.return_direction) }
+  end
+  return copied
 end
 
 function Ore.new(options)
@@ -46,6 +66,8 @@ function Ore.new(options)
   local excluded = options.excluded_ids or {}
   local matcher = options.matcher
   local shouldStop = options.should_stop
+  local fluid = options.fluid
+  local onExcursion = options.on_excursion
   local ore = {}
 
   assert(type(maxSize) == "number" and maxSize >= 1 and maxSize % 1 == 0, "ore maximum size must be a positive whole number")
@@ -125,12 +147,61 @@ function Ore.new(options)
     return result.ok(true)
   end
 
-  local function restoreTunnel(saved)
+  local function breadcrumbFailure(saved, breadcrumbs, failedDirection, failed)
+    local current = navigation:position()
+    local cause = failed and failed.error and failed.error.message or "unknown movement failure"
+    local message = "ORE RETURN FAILED. Anchor: " .. saved.x .. "," .. saved.y .. "," .. saved.z ..
+      ". Current: " .. current.x .. "," .. current.y .. "," .. current.z ..
+      ". Breadcrumbs remaining: " .. #breadcrumbs .. ". Failed return step: " ..
+      (failedDirection and failedDirection.name or "unknown") .. ". Cause: " .. cause
+    if logger then logger:error("ore.breadcrumb_return_failed", { anchor = saved, current = current, breadcrumbs_remaining = #breadcrumbs, failed_step = failedDirection and failedDirection.name, cause = cause }) end
+    if ui then ui:status("ORE", message, true) end
+    return message
+  end
+
+  local function moveBreadcrumb(direction)
+    local inspected = inspect(direction)
+    if not inspected.ok then return inspected end
+    if inspected.value.present then
+      if fluid and fluid:isFluid(inspected.value.data) then return move(direction, true) end
+      if inspected.value.data and inspected.value.data.name == "minecraft:torch" then return move(direction, false) end
+      return result.fail("ORE.BREADCRUMB_BLOCKED", "Known return path is obstructed by " .. (inspected.value.data and inspected.value.data.name or "an unknown block"), { context = { direction = direction.name } })
+    end
+    return move(direction, false)
+  end
+
+  local function returnBreadcrumb(breadcrumbs, saved)
+    local crumb = breadcrumbs[#breadcrumbs]
+    if not crumb then return result.ok(false) end
+    if not sameCoordinates(navigation:position(), crumb.to) then
+      return result.fail("ORE.BREADCRUMB_MISMATCH", "Current position does not match the recorded breadcrumb", { context = { expected = crumb.to, current = navigation:position() } })
+    end
+    local returned = moveBreadcrumb(crumb.return_direction)
+    if not returned.ok then return returned end
+    if not sameCoordinates(navigation:position(), crumb.from) then
+      return result.fail("ORE.BREADCRUMB_MISMATCH", "Breadcrumb return reached an unexpected position", { context = { expected = crumb.from, current = navigation:position() } })
+    end
+    table.remove(breadcrumbs)
+    if onExcursion then onExcursion({ active = true, anchor = copy(saved), breadcrumbs = copyBreadcrumbs(breadcrumbs), position = copy(navigation:position()) }) end
+    return result.ok(true)
+  end
+
+  local function restoreTunnel(saved, breadcrumbs)
     if ui then ui:status("ORE", "Returning to tunnel", false) end
+    local breadcrumbFailureResult
+    while breadcrumbs and #breadcrumbs > 0 do
+      local returned = returnBreadcrumb(breadcrumbs, saved)
+      if not returned.ok then
+        breadcrumbFailureResult = returned
+        breadcrumbFailure(saved, breadcrumbs, breadcrumbs[#breadcrumbs] and breadcrumbs[#breadcrumbs].return_direction, returned)
+        break
+      end
+    end
     local returned = returnTo(saved)
     if not returned.ok then
-      if logger then logger:error("ore.return_failed", { position = navigation:position(), reason = returned.error.message }) end
-      return result.fail("ORE.RETURN_FAILED", "Unable to return safely to the tunnel: " .. returned.error.message, { context = returned.error.context })
+      local reason = breadcrumbFailureResult and breadcrumbFailure(saved, breadcrumbs or {}, nil, returned) or returned.error.message
+      if logger then logger:error("ore.return_failed", { position = navigation:position(), reason = reason }) end
+      return result.fail("ORE.RETURN_FAILED", "Unable to return safely to the tunnel: " .. reason, { context = returned.error.context })
     end
     local faced = navigation:face(saved.heading)
     if not faced.ok then
@@ -140,6 +211,8 @@ function Ore.new(options)
     if not samePosition(navigation:position(), saved) then
       return result.fail("ORE.RETURN_MISMATCH", "Returned position did not match the tunnel state")
     end
+    if breadcrumbFailureResult and logger then logger:warn("ore.breadcrumb_fallback_succeeded", { position = saved }) end
+    if onExcursion then onExcursion(nil) end
     if logger then logger:info("ore.returned", { position = saved }) end
     return result.ok(true)
   end
@@ -314,12 +387,29 @@ function Ore.new(options)
     local stop = options.should_stop or shouldStop
     local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
     local failure
+    local breadcrumbs = copyBreadcrumbs(options.breadcrumbs)
 
     if type(target) ~= "table" or type(target.position) ~= "table" or type(target.direction) ~= "table" or type(target.data) ~= "table" then
       return result.fail("ORE.INVALID_TARGET", "Ore chase target is invalid")
     end
 
     local stack = {}
+
+    local function checkpointExcursion()
+      if onExcursion then onExcursion({ active = true, anchor = copy(anchor), breadcrumbs = copyBreadcrumbs(breadcrumbs), position = copy(navigation:position()) }) end
+    end
+
+    local function moveTracked(direction, clearPath)
+      local from = copy(navigation:position())
+      local moved = move(direction, clearPath)
+      if not moved.ok then return moved end
+      local to = copy(navigation:position())
+      local inverse = inverseDirection(from, to)
+      if not inverse then return result.fail("ORE.BREADCRUMB_INVALID", "Successful ore movement was not adjacent to its origin") end
+      table.insert(breadcrumbs, { from = from, to = to, return_direction = inverse })
+      checkpointExcursion()
+      return moved
+    end
 
     local function enter(position, direction, data)
       local positionKey = key(position)
@@ -342,7 +432,7 @@ function Ore.new(options)
       end
       local dug = adapter:dig(direction.move or "forward")
       if not dug.ok then return dug end
-      local entered = move(direction, true)
+      local entered = moveTracked(direction, true)
       if not entered.ok then return entered end
       collected = collected + 1
       table.insert(stack, { position = copy(navigation:position()), next_direction = 1 })
@@ -372,7 +462,7 @@ function Ore.new(options)
       if frame.next_direction > #directions then
         table.remove(stack)
         if #stack > 0 then
-          local returned = returnTo(stack[#stack].position)
+          local returned = returnBreadcrumb(breadcrumbs, anchor)
           if not returned.ok then failure = returned end
         end
       else
@@ -409,7 +499,7 @@ function Ore.new(options)
     end
     if abandoned and logger then logger:warn("ore.branch_abandoned", { ore_type = detectedName, collected = collected, tunnel_position = anchor }) end
     if ui and collected > 0 then ui:status("ORE", "Collected " .. collected .. " blocks", false) end
-    local restored = restoreTunnel(anchor)
+    local restored = restoreTunnel(anchor, breadcrumbs)
     if not restored.ok then return restored end
     if failure then
       if logger then logger:error("ore.chase_failed", { ore_type = detectedName, collected = collected, reason = failure.error.message }) end
@@ -418,6 +508,17 @@ function Ore.new(options)
     if logger then logger:info("ore.completed", { ore_type = detectedName, collected = collected, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned }) end
     if ui and collected > 0 then ui:status("ORE", "Resuming", false) end
     return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+  end
+
+  function ore:recoverExcursion(excursion)
+    if type(excursion) ~= "table" or type(excursion.anchor) ~= "table" or type(excursion.breadcrumbs) ~= "table" then
+      return result.fail("ORE.INVALID_EXCURSION", "Saved ore excursion is invalid")
+    end
+    local anchor = copy(excursion.anchor)
+    local breadcrumbs = copyBreadcrumbs(excursion.breadcrumbs)
+    local restored = restoreTunnel(anchor, breadcrumbs)
+    if not restored.ok then return restored end
+    return result.ok({ anchor = anchor })
   end
 
   function ore:mineExposed()

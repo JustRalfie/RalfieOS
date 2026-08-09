@@ -22,7 +22,7 @@ local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
 
 local function run(blocks, options)
   options = options or {}
-  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {} }
+  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {}, excursions = {} }
   for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
@@ -41,6 +41,7 @@ local function run(blocks, options)
   local function move(direction)
     state.moves = state.moves + 1
     if options.fail_from_move and state.moves >= options.fail_from_move then return false, "blocked" end
+    if options.fail_moves and options.fail_moves[state.moves] then return false, "blocked" end
     local x, y, z = target(direction)
     if state.blocks[key(x, y, z)] then return false, "blocked" end
     state.x, state.y, state.z = x, y, z
@@ -81,6 +82,7 @@ local function run(blocks, options)
     max_size = options.max_size or 64, movement_retries = options.movement_retries or 3,
     additional_ids = options.additional_ids, excluded_ids = options.excluded_ids,
     should_stop = options.stop_after_digs and function() return state.digs >= options.stop_after_digs end or nil,
+    on_excursion = function(excursion) table.insert(state.excursions, excursion or false) end,
   })
   local outcome
   if options.slice_boundary then
@@ -269,6 +271,12 @@ local chasedHorizontal, chasedHorizontalState, chasedHorizontalNavigation = run(
 }, { chase_direction = "forward", chase_name = "minecraft:iron_ore" })
 assert(chasedHorizontal.ok and chasedHorizontal.value.collected == 2)
 restored(chasedHorizontalState, chasedHorizontalNavigation)
+local sawTwoStepTrail, sawCollapsedTrail = false, false
+for _, excursion in ipairs(chasedHorizontalState.excursions) do
+  if excursion and #excursion.breadcrumbs == 2 then sawTwoStepTrail = true end
+  if excursion and #excursion.breadcrumbs == 1 then sawCollapsedTrail = true end
+end
+assert(sawTwoStepTrail and sawCollapsedTrail and chasedHorizontalState.excursions[#chasedHorizontalState.excursions] == false, "DFS backtracking must collapse the active breadcrumb trail")
 
 local chasedVertical, chasedVerticalState, chasedVerticalNavigation = run({
   { x = 0, y = 1, z = 0, name = "minecraft:gold_ore" }, { x = 0, y = 2, z = 0, name = "minecraft:gold_ore" },
@@ -318,6 +326,14 @@ local chasedReturnFailure, chasedReturnFailureState = run({ { x = 1, y = 0, z = 
 })
 assert(not chasedReturnFailure.ok and chasedReturnFailure.error.code == "ORE.RETURN_FAILED")
 assert(chasedReturnFailureState.x == 1 and chasedReturnFailureState.y == 0 and chasedReturnFailureState.z == 0)
+local failedTrail = chasedReturnFailureState.excursions[#chasedReturnFailureState.excursions]
+assert(failedTrail and failedTrail.active and #failedTrail.breadcrumbs == 1, "failed breadcrumb return must retain the remaining route")
+
+local fallbackReturn, fallbackState, fallbackNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", fail_moves = { [2] = true },
+})
+assert(fallbackReturn.ok and fallbackState.x == 0 and fallbackState.y == 0 and fallbackState.z == 0, "coordinate fallback must recover after a transient breadcrumb failure")
+restored(fallbackState, fallbackNavigation)
 
 local sharedProcessed = { ["1:0:0"] = true }
 local skippedChase, skippedChaseState, skippedChaseNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
