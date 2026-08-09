@@ -195,6 +195,7 @@ function Miner.start(context, options)
     get_job = function() return options.job_id or (jobState and jobState.id) or nil end,
     get_job_details = options.get_job_details,
     get_pending_command = function() return pendingReturn and "RETURN_HOME" or (pendingUnload and "UNLOAD" or (pendingPause and "PAUSE" or nil)) end,
+    get_software_version = context.software_version,
   })
   network = MiningNetwork.new({
     protocol = MiningProtocol, status = statusReader, rednet = context.rednet, peripheral = context.peripheral,

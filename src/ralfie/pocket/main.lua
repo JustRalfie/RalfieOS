@@ -3,10 +3,11 @@ local Protocol = dofile(root .. "/services/platform/mining_protocol.lua")
 local Fleet = dofile(root .. "/pocket/fleet.lua")
 local Network = dofile(root .. "/pocket/network.lua")
 local Ui = dofile(root .. "/pocket/ui.lua")
+local manifest = dofile(root .. "/manifest.lua")
 
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
-local fleet, selected, screen, detailSelection, settingsSelection, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, "fleet", 1, 1, nil, nil, nil
+local fleet, selected, screen, detailSelection, settingsSelection, controllerSelection, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, "fleet", 1, 1, 1, nil, nil, nil
 local function now() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
 local function selectOnline()
   -- Keep a selected offline device visible so its cached Details screen remains reachable.
@@ -21,7 +22,26 @@ local function redraw()
   elseif screen == "details" and miner then Ui.details(term, miner)
   elseif screen == "settings" and miner then Ui.settings(term, miner, settingsSelection)
   elseif screen == "update" then Ui.update(term, fleet, updateBatch, 1)
+  elseif screen == "controller" then Ui.controllerMenu(term, controllerSelection)
   else Ui.render(term, fleet, selected) end
+end
+
+local function updatesResolved(batch)
+  if not batch or next(batch.pending) ~= nil then return false end
+  for _, result in pairs(batch.results) do
+    if result.status == "UPDATED" or result.status == "ACCEPTED" or result.status == "UPDATING" then return false end
+  end
+  return true
+end
+
+local function observeUpdateStatus(id)
+  if not updateBatch then return end
+  local result, miner = updateBatch.results[id], fleet.miners[id]
+  local expected = result and (result.version or updateBatch.target_version)
+  if result and result.status == "UPDATED" and miner and miner.status and miner.status.software_version == expected then
+    result.status, result.version = "VERIFIED", miner.status.software_version
+  end
+  updateBatch.resolved = updatesResolved(updateBatch)
 end
 local function finishFleetUpdate()
   if not updateBatch or updateBatch.local_started then return end
@@ -36,36 +56,50 @@ local function finishFleetUpdate()
   end
 end
 local function requestFleetUpdate()
-  updateBatch = { pending = {}, results = {} }
+  updateBatch = { pending = {}, results = {}, target_version = manifest.version, resolved = false }
   local issuedBy = network:identity().id
   for _, miner in ipairs(fleet:list()) do
     if miner.online then
       local state = Ui.userState(miner)
       if state == "READY" or state == "PAUSED" then
         local requestId = "update-" .. tostring(os.epoch("utc")) .. "-" .. miner.id
-        updateBatch.pending[miner.id] = { id = requestId, sent_at = now() }
+        updateBatch.pending[miner.id] = { id = requestId, sent_at = now(), last_seen = now(), stage = "Waiting" }
         if not network:send(miner.id, Protocol.types.DEVICE_UPDATE_REQUEST, { request_id = requestId, target_id = miner.id, issued_by = issuedBy }) then
           updateBatch.pending[miner.id] = nil; updateBatch.results[miner.id] = { status = "FAILED", reason = "could not send request" }
         end
       else
         updateBatch.results[miner.id] = { status = "BUSY", reason = "worker is " .. state:lower() }
       end
-    end
+    else updateBatch.results[miner.id] = { status = "OFFLINE" } end
   end
-  if next(updateBatch.pending) == nil then finishFleetUpdate() end
+  updateBatch.resolved = updatesResolved(updateBatch)
 end
 local function receive(sender, message)
   local time = now()
-  if message.type == Protocol.types.HELLO_ACK or message.type == Protocol.types.STATUS or message.type == Protocol.types.PONG then fleet:record(message.sender, message.payload, time) end
+  if message.type == Protocol.types.HELLO_ACK or message.type == Protocol.types.STATUS or message.type == Protocol.types.PONG then
+    fleet:record(message.sender, message.payload, time); observeUpdateStatus(message.sender.id)
+  end
   if message.type == Protocol.types.JOB_STATUS and fleet.miners[message.sender.id] then
     local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance
   end
   if message.type == Protocol.types.DEVICE_INFO and fleet.miners[message.sender.id] then fleet.miners[message.sender.id].device_info = message.payload end
+  if updateBatch and message.type == Protocol.types.DEVICE_UPDATE_PROGRESS then
+    local pending = updateBatch.pending[message.sender.id]
+    if pending and pending.id == message.payload.request_id then
+      pending.stage, pending.completed_files, pending.total_files, pending.last_seen = message.payload.stage, message.payload.completed_files, message.payload.total_files, time
+    end
+  end
   if updateBatch and message.type == Protocol.types.DEVICE_UPDATE_RESULT then
     local pending = updateBatch.pending[message.sender.id]
     if pending and pending.id == message.payload.request_id then
       updateBatch.pending[message.sender.id] = nil
-      updateBatch.results[message.sender.id] = { status = message.payload.status, reason = message.payload.reason, restart_required = message.payload.restart_required }
+      if message.payload.status == "SUCCESS" and message.payload.version then updateBatch.target_version = message.payload.version end
+      updateBatch.results[message.sender.id] = {
+        status = message.payload.status == "SUCCESS" and "UPDATED" or message.payload.status,
+        reason = message.payload.reason, restart_required = message.payload.restart_required, version = message.payload.version,
+        verified_by = message.payload.status == "SUCCESS" and (time + 60) or nil,
+      }
+      observeUpdateStatus(message.sender.id)
     end
   end
   if command and message.sender.id == command.target_id and command.state == "RESULT UNKNOWN" and fleet:canCommand(command.target_id) then
@@ -128,15 +162,24 @@ while true do
     if math.floor(time) % 30 == 0 then network:broadcast(Protocol.types.HELLO) end
     if updateBatch and not updateBatch.local_started then
       for id, pending in pairs(updateBatch.pending) do
-        if time - pending.sent_at >= 30 then updateBatch.pending[id] = nil; updateBatch.results[id] = { status = "FAILED", reason = "update request timed out" } end
+        if time - pending.last_seen >= 45 then updateBatch.pending[id] = nil; updateBatch.results[id] = { status = "RESULT UNKNOWN", reason = "update response timed out" } end
       end
-      if next(updateBatch.pending) == nil then finishFleetUpdate() end
+      for _, result in pairs(updateBatch.results) do
+        if result.status == "UPDATED" and result.verified_by and time >= result.verified_by then result.status, result.reason = "RESULT UNKNOWN", "updated device did not report the target version" end
+      end
+      updateBatch.resolved = updatesResolved(updateBatch)
     end
     timer = os.startTimer(1)
   elseif event == "key" then
-    if screen == "fleet" and a == keys.m then return true
-    elseif screen == "fleet" and a == keys.a and not updateBatch then requestFleetUpdate(); screen = "update"
+    if screen == "fleet" and a == keys.m then screen, controllerSelection = "controller", 1
+    elseif screen == "fleet" and a == keys.a then if not updateBatch then requestFleetUpdate() end; screen = "update"
     elseif screen == "update" and Ui.isBackKey(a) then screen = "fleet"
+    elseif screen == "update" and a == keys.enter and updateBatch and updateBatch.resolved then finishFleetUpdate()
+    elseif screen == "controller" and Ui.isBackKey(a) then screen = "fleet"
+    elseif screen == "controller" and (a == keys.up or a == keys.down) then controllerSelection = math.max(1, math.min(3, controllerSelection + (a == keys.up and -1 or 1)))
+    elseif screen == "controller" and a == keys.enter then
+      if controllerSelection == 1 or controllerSelection == 3 then screen = "fleet"
+      elseif controllerSelection == 2 then if not updateBatch then requestFleetUpdate() end; screen = "update" end
     elseif screen == "details" and Ui.isBackKey(a) then screen = "detail"
     elseif screen == "settings" and Ui.isBackKey(a) then screen = "detail"
     elseif screen == "settings" and (a == keys.up or a == keys.down) then settingsSelection = math.max(1, math.min(4, settingsSelection + (a == keys.up and -1 or 1)))

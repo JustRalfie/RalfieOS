@@ -182,11 +182,16 @@ local fakeHttp = {
     return { readAll = function() return content end, close = function() end }
   end,
 }
-local remote = RemoteUpdate.new({ filesystem = fs, fsx = Fsx, result = Result, updater = updater, http = fakeHttp, load = load })
+local progress = {}
+local remote = RemoteUpdate.new({ filesystem = fs, fsx = Fsx, result = Result, updater = updater, http = fakeHttp, load = load,
+  progress = function(value) table.insert(progress, value) end })
 local remotelyInstalled = remote:install("https://example.invalid/", "/remote-installed")
 assert(remotelyInstalled.ok, remotelyInstalled.error and remotelyInstalled.error.message)
 assert(Fsx.read(fs, "/remote-installed/payload.lua") == "return 'remote'")
 assert(Fsx.read(fs, "/ralf.lua") == "return 'launcher'")
+assert(progress[1].stage == "PREPARING" and progress[1].total_files == 2)
+assert(progress[2].stage == "DOWNLOADING" and progress[2].completed_files == 1 and progress[3].completed_files == 2, "remote progress must count completed manifest files")
+assert(progress[#progress].stage == "INSTALLED" and progress[#progress].completed_files == 2)
 Fsx.write(fs, "/remote-failure/keep.lua", "return 'keep'")
 local failedRemote = remote:install("https://missing.invalid/", "/remote-failure")
 assert(not failedRemote.ok)

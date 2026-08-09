@@ -7,7 +7,7 @@ local Protocol = {
     COMMAND_ACK = "COMMAND_ACK", COMMAND_RESULT = "COMMAND_RESULT",
     JOB_ASSIGN = "JOB_ASSIGN", JOB_ACK = "JOB_ACK", JOB_STATUS = "JOB_STATUS", JOB_RESULT = "JOB_RESULT",
     DEVICE_INFO_REQUEST = "DEVICE_INFO_REQUEST", DEVICE_INFO = "DEVICE_INFO", DEVICE_CONFIG_SET = "DEVICE_CONFIG_SET", DEVICE_CONFIG_ACK = "DEVICE_CONFIG_ACK",
-    DEVICE_UPDATE_REQUEST = "DEVICE_UPDATE_REQUEST", DEVICE_UPDATE_RESULT = "DEVICE_UPDATE_RESULT",
+    DEVICE_UPDATE_REQUEST = "DEVICE_UPDATE_REQUEST", DEVICE_UPDATE_PROGRESS = "DEVICE_UPDATE_PROGRESS", DEVICE_UPDATE_RESULT = "DEVICE_UPDATE_RESULT",
   },
 }
 
@@ -75,7 +75,13 @@ end
 function Protocol.deviceUpdateResultValid(payload)
   return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and
     (payload.status == "SUCCESS" or payload.status == "FAILED" or payload.status == "BUSY" or payload.status == "REJECTED") and
-    (payload.reason == nil or type(payload.reason) == "string") and (payload.restart_required == nil or type(payload.restart_required) == "boolean")
+    (payload.reason == nil or type(payload.reason) == "string") and (payload.restart_required == nil or type(payload.restart_required) == "boolean") and
+    (payload.version == nil or type(payload.version) == "string")
+end
+function Protocol.deviceUpdateProgressValid(payload)
+  return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and type(payload.stage) == "string" and
+    (payload.completed_files == nil or type(payload.completed_files) == "number") and (payload.total_files == nil or type(payload.total_files) == "number") and
+    (payload.version == nil or type(payload.version) == "string")
 end
 
 function Protocol.commandValid(payload)
@@ -117,6 +123,7 @@ function Protocol.valid(message)
   if message.type == Protocol.types.DEVICE_CONFIG_SET then return Protocol.deviceConfigSetValid(message.payload) end
   if message.type == Protocol.types.DEVICE_CONFIG_ACK then return Protocol.deviceConfigAckValid(message.payload) end
   if message.type == Protocol.types.DEVICE_UPDATE_REQUEST then return Protocol.deviceUpdateRequestValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_UPDATE_PROGRESS then return Protocol.deviceUpdateProgressValid(message.payload) end
   if message.type == Protocol.types.DEVICE_UPDATE_RESULT then return Protocol.deviceUpdateResultValid(message.payload) end
   return true
 end

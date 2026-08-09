@@ -32,15 +32,19 @@ local updatePayload = { request_id = "update-1", target_id = 17, issued_by = 42 
 local updateMessage = assert(Protocol.message(Protocol.types.DEVICE_UPDATE_REQUEST, { id = 42 }, updatePayload))
 assert(Protocol.valid(updateMessage))
 assert(not Protocol.valid(Protocol.message(Protocol.types.DEVICE_UPDATE_REQUEST, { id = 42 }, { target_id = 17, issued_by = 42 })))
+local updateProgress = assert(Protocol.message(Protocol.types.DEVICE_UPDATE_PROGRESS, { id = 17 }, { request_id = "update-1", target_id = 17, stage = "DOWNLOADING", completed_files = 14, total_files = 20, version = "0.3.6" }))
+assert(Protocol.valid(updateProgress))
+assert(not Protocol.valid(Protocol.message(Protocol.types.DEVICE_UPDATE_PROGRESS, { id = 17 }, { request_id = "update-1", target_id = 17, completed_files = 14 })))
 
 local statusReader = MiningStatus.new({
   turtle = { getFuelLevel = function() return "unlimited" end },
   inventory = { count = function(_, slot) return (slot == 1 or slot == 16) and 1 or 0 end },
   get_state = function() return "IDLE" end, get_job = function() return nil end,
+  get_software_version = function() return "0.3.6" end,
   gps = { locate = function() return nil end },
 })
 local localStatus = statusReader:read()
-assert(localStatus.fuel_level == "unlimited" and localStatus.inventory_used == 2 and localStatus.position == nil and localStatus.job_id == nil)
+assert(localStatus.fuel_level == "unlimited" and localStatus.inventory_used == 2 and localStatus.position == nil and localStatus.job_id == nil and localStatus.software_version == "0.3.6")
 assert(Protocol.statusValid({ turtle_id = 17, state = "PAUSED", fuel_level = 500, inventory_used = 3, inventory_slots = 16, pending_command = "PAUSE", software_version = "0.1.0", protocol_version = 1 }))
 
 local sent, broadcasts = {}, {}

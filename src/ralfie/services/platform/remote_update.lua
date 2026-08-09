@@ -21,6 +21,7 @@ function RemoteUpdate.new(options)
     http = assert(options.http, "remote updater requires HTTP"),
     load = assert(options.load, "remote updater requires load"),
     output = options.output or function() end,
+    progress = options.progress or function() end,
   }
 
   function service:download(url)
@@ -76,6 +77,7 @@ function RemoteUpdate.new(options)
     local manifestResult = self:manifest(baseUrl)
     if not manifestResult.ok then return manifestResult end
     local manifest = manifestResult.value
+    self.progress({ stage = "PREPARING", completed_files = 0, total_files = #manifest.files, version = manifest.version })
     local stagingRoot = targetRoot .. ".staging"
     if self.filesystem.exists(stagingRoot) then self.filesystem.delete(stagingRoot) end
     local made, makeErr = self.fsx.ensureDir(self.filesystem, stagingRoot)
@@ -97,7 +99,9 @@ function RemoteUpdate.new(options)
         self.filesystem.delete(stagingRoot)
         return self.result.fail("REMOTE.WRITE_FAILED", "Unable to stage downloaded file", { context = { path = relativePath, detail = writeErr } })
       end
+      self.progress({ stage = "DOWNLOADING", completed_files = index, total_files = #manifest.files, version = manifest.version })
     end
+    self.progress({ stage = "VERIFYING", completed_files = #manifest.files, total_files = #manifest.files, version = manifest.version })
     for _, relativePath in ipairs(manifest.files) do
       if not self.filesystem.exists(join(stagingRoot, relativePath)) then
         self.filesystem.delete(stagingRoot)
@@ -112,6 +116,7 @@ function RemoteUpdate.new(options)
         return self.result.fail("REMOTE.LAUNCHER_FAILED", "Runtime installed but shell launcher could not be updated", { context = { target = launcher.target, detail = copyErr } })
       end
     end
+    self.progress({ stage = "INSTALLED", completed_files = #manifest.files, total_files = #manifest.files, version = manifest.version })
     return activated
   end
 

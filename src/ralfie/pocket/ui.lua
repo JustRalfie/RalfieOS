@@ -1,6 +1,7 @@
 local Ui = {}
+Ui.VERSION = "0.3.6"
 
-function Ui.isBackKey(key) return key == keys.b or key == keys.backspace or key == keys.escape end
+function Ui.isBackKey(key) return key == keys.b or key == keys.backspace end
 
 local function writeLine(terminal, line, text, selected)
   local width, height = terminal.getSize()
@@ -59,17 +60,20 @@ end
 function Ui.render(terminal, fleet, selected)
   terminal.clear()
   local total, states = summary(fleet)
-  writeLine(terminal, 1, "RALFIE OS")
+  local width = select(1, terminal.getSize())
+  writeLine(terminal, 1, "RALFIE OS v" .. Ui.VERSION)
   writeLine(terminal, 2, "MAIN FLEET  " .. fleet:onlineCount() .. " ONLINE")
   writeLine(terminal, 3, total)
   writeLine(terminal, 4, states)
   local line = 6
   for _, miner in ipairs(fleet:list()) do
     if line >= select(2, terminal.getSize()) - 2 then break end
-    writeLine(terminal, line, (miner.label or ("#" .. miner.id)) .. "  " .. Ui.userState(miner), selected == miner.id)
+    local row = (miner.label or ("#" .. miner.id)) .. "  " .. Ui.userState(miner)
+    local version = (miner.status or {}).software_version or (miner.device_info or {}).software_version
+    if version and width >= 30 then row = row .. "  v" .. tostring(version) end
+    writeLine(terminal, line, row, selected == miner.id)
     line = line + 1
   end
-  local width = select(1, terminal.getSize())
   writeLine(terminal, select(2, terminal.getSize()) - 1, width < 28 and "[M] Menu  [A] Update" or "[A] Update Fleet  [M] Menu")
   writeLine(terminal, select(2, terminal.getSize()), "Enter Open")
 end
@@ -95,7 +99,7 @@ function Ui.details(terminal, miner)
   writeLine(terminal, 3, "Computer ID " .. tostring(miner.id))
   writeLine(terminal, 4, "Role        " .. tostring(info.role or "Unknown"):gsub("_", " "))
   writeLine(terminal, 5, "Fleet       " .. tostring(info.fleet_name or "Unknown"))
-  writeLine(terminal, 6, "Version     " .. tostring(info.software_version or "Unknown"))
+  writeLine(terminal, 6, "Version     " .. tostring(info.software_version or status.software_version or "Unknown"))
   writeLine(terminal, 7, "GPS         " .. (info.gps and "Available" or "Unavailable"))
   writeLine(terminal, 8, "Modem       " .. (info.wireless_modem and "Connected" or "Unavailable"))
   if status.job_id then writeLine(terminal, 9, "Job         " .. status.job_id) end
@@ -114,22 +118,38 @@ end
 
 function Ui.update(terminal, fleet, updateBatch, selected)
   terminal.clear(); writeLine(terminal, 1, "FLEET UPDATE")
+  writeLine(terminal, 2, "Target: v" .. tostring(updateBatch and updateBatch.target_version or "?"))
   local line = 3
   for _, miner in ipairs(fleet:list()) do
     local result = updateBatch and updateBatch.results[miner.id]
     local pending = updateBatch and updateBatch.pending[miner.id]
-    local text = pending and "Updating..." or (result and (result.status == "SUCCESS" and "Updated" or result.status) or (miner.online and "Waiting" or "Offline"))
+    local text
+    if pending then
+      text = pending.stage == "DOWNLOADING" and ("Downloading " .. tostring(pending.completed_files or 0) .. "/" .. tostring(pending.total_files or "?")) or (pending.stage or "Waiting")
+    elseif result then
+      text = result.status
+      if result.status == "VERIFIED" then text = "Verified v" .. tostring(result.version or updateBatch.target_version) end
+    else text = miner.online and "Waiting" or "Offline" end
     writeLine(terminal, line, (miner.label or ("#" .. miner.id)) .. "  " .. text); line = line + 1
   end
-  writeLine(terminal, select(2, terminal.getSize()) - 1, "[B] Back")
-  writeLine(terminal, select(2, terminal.getSize()), "Update requests continue")
+  local totals = { verified = 0, busy = 0, offline = 0, failed = 0 }
+  for _, result in pairs((updateBatch and updateBatch.results) or {}) do
+    if result.status == "VERIFIED" then totals.verified = totals.verified + 1
+    elseif result.status == "BUSY" then totals.busy = totals.busy + 1
+    elseif result.status == "OFFLINE" then totals.offline = totals.offline + 1
+    elseif result.status == "FAILED" or result.status == "RESULT UNKNOWN" then totals.failed = totals.failed + 1 end
+  end
+  local height = select(2, terminal.getSize())
+  if updateBatch and updateBatch.resolved then writeLine(terminal, height - 2, totals.verified .. " verified  " .. totals.busy .. " busy  " .. totals.offline .. " offline") end
+  writeLine(terminal, height - 1, updateBatch and updateBatch.resolved and "Enter Update Pocket  [B] Back" or "[B] Back")
+  writeLine(terminal, height, updateBatch and updateBatch.resolved and "Remote results resolved" or "Requests continue in background")
 end
 
 function Ui.input(terminal, title, label, initial)
   local value = initial or ""
   while true do
     terminal.clear(); writeLine(terminal, 1, title); writeLine(terminal, 3, label); writeLine(terminal, 5, "> " .. value .. "_")
-    writeLine(terminal, select(2, terminal.getSize()), "Enter Save  Esc Cancel")
+    writeLine(terminal, select(2, terminal.getSize()), "Enter Save  Backspace empty Cancel")
     local event, key = os.pullEvent()
     if event == "char" then value = value .. key
     elseif event == "key" then
@@ -143,10 +163,19 @@ function Ui.confirm(terminal, title, lines)
   while true do
     terminal.clear(); writeLine(terminal, 1, title)
     for index, line in ipairs(lines or {}) do writeLine(terminal, index + 2, line) end
-    writeLine(terminal, select(2, terminal.getSize()), "[Y] Confirm  [N] Cancel")
+    writeLine(terminal, select(2, terminal.getSize()), "[Y] Confirm  [B] Back")
     local event, key = os.pullEvent("key")
-    if event == "key" then if key == keys.y then return true elseif key == keys.n or Ui.isBackKey(key) then return false, "BACK" end end
+    if event == "key" then if key == keys.y then return true elseif key == keys.n or Ui.isBackKey(key) or key == keys.escape then return false, "BACK" end end
   end
+end
+
+function Ui.controllerMenu(terminal, selected)
+  terminal.clear()
+  writeLine(terminal, 1, "RALFIE OS v" .. Ui.VERSION)
+  writeLine(terminal, 2, "CONTROLLER MENU")
+  local entries = { "Fleet", "Update Fleet", "Back" }
+  for index, entry in ipairs(entries) do writeLine(terminal, index + 4, entry, index == selected) end
+  writeLine(terminal, select(2, terminal.getSize()), "Enter Select  [B] Back")
 end
 
 return Ui

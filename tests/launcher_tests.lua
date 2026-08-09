@@ -17,15 +17,17 @@ local function runScenario(options)
       return ""
     end,
   }
-  if options.wizardInputs then
-    ui.input = function(_, _, label)
+  if options.wizardInputs or options.tunnelInputs then
+    ui.input = function(_, title, label)
       table.insert(events, "input:" .. label)
+      if title == "NEW TUNNEL" then return table.remove(options.tunnelInputs, 1) end
       return table.remove(options.wizardInputs, 1)
     end
   end
   local menu = {
-    choose = function(_, title)
+    choose = function(_, title, _, options)
       table.insert(events, "menu:" .. title)
+      if options and options.header then for _, line in ipairs(options.header) do table.insert(events, "header:" .. line) end end
       local choice = table.remove(choices, 1)
       return choice
     end,
@@ -108,10 +110,9 @@ local function prefixAppearsBefore(events, first, second)
 end
 
 local success = runScenario({
-  choices = { "mining", "tunnel_miner", "3", "back", "exit" },
-  start = function(context)
-    assert(context.turtle ~= nil)
-    assert(context.ui:prompt("Tunnel distance:") == "3")
+  choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" },
+  start = function(context, options)
+    assert(context.turtle ~= nil and options.distance == 3)
     return Result.ok(true)
   end,
 })
@@ -123,14 +124,16 @@ assert(contains(success, "prompt:[Enter/B] Back:"))
 assert(appearsBefore(success, "status:DONE:3x3 Tunnel Miner finished.", "prompt:[Enter/B] Back:"))
 assert(count(success, "menu:MINING") == 2)
 assert(count(success, "menu:NEW TUNNEL") == 1)
+assert(contains(success, "menu:START TUNNEL?"))
+assert(contains(success, "header:Size: 3x3") and contains(success, "header:Distance: 3"))
 
-local loadFailure = runScenario({ choices = { "mining", "tunnel_miner", "3", "back", "exit" }, loadFailure = true })
+local loadFailure = runScenario({ choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" }, loadFailure = true })
 assert(contains(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable"))
 assert(contains(loadFailure, "prompt:[Enter/B] Back:"))
 assert(appearsBefore(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable", "prompt:[Enter/B] Back:"))
 
 local exception = runScenario({
-  choices = { "mining", "tunnel_miner", "3", "back", "exit" },
+  choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" },
   start = function() error("simulated Miner crash") end,
 })
 assert(containsText(exception, "simulated Miner crash"))
@@ -138,7 +141,7 @@ assert(contains(exception, "prompt:[Enter/B] Back:"))
 assert(prefixAppearsBefore(exception, "status:ERROR:Tunnel Miner crashed:", "prompt:[Enter/B] Back:"))
 
 local failure = runScenario({
-  choices = { "mining", "tunnel_miner", "3", "back", "exit" },
+  choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" },
   start = function() return Result.fail("MINER.STOPPED", "simulated Miner failure") end,
 })
 assert(contains(failure, "status:STOPPED:simulated Miner failure"))
@@ -149,12 +152,21 @@ for _, size in ipairs({ 5, 9 }) do
   local moduleName = "ralfie.apps.miner.miner_" .. size .. "x" .. size
   local invoked = false
   local sized = runScenario({
-    choices = { "mining", "tunnel_miner", tostring(size), "back", "exit" },
-    starts = { [moduleName] = function(context) invoked = context.ui:prompt("Tunnel distance:") == "3"; return Result.ok(true) end },
+    choices = { "mining", "tunnel_miner", tostring(size), "start", "back", "exit" },
+    starts = { [moduleName] = function(_, options) invoked = options.distance == 3; return Result.ok(true) end },
   })
   assert(invoked, size .. "x" .. size .. " tunnel must dispatch to its existing miner module")
   assert(contains(sized, "status:DONE:" .. size .. "x" .. size .. " Tunnel Miner finished."))
 end
+
+local cancelledStarts = 0
+local cancelled = runScenario({ choices = { "mining", "tunnel_miner", "5", "back", "back", "back", "exit" }, start = function() cancelledStarts = cancelledStarts + 1; return Result.ok(true) end })
+assert(cancelledStarts == 0, "cancelling the tunnel confirmation must not start a miner")
+assert(count(cancelled, "menu:NEW TUNNEL") == 2, "Back from confirmation must return to size selection")
+
+local distanceBack = runScenario({ choices = { "mining", "tunnel_miner", "5", "back", "back", "exit" }, tunnelInputs = { nil }, start = function() error("must not start") end })
+assert(contains(distanceBack, "input:Size: 5x5  Distance:"))
+assert(count(distanceBack, "menu:NEW TUNNEL") == 2, "Back from distance input must return to size selection")
 
 local firstRun = runScenario({ choices = { "exit" }, noProfile = true, workerEnabled = true, autoStart = true, start = function() return Result.ok(true) end })
 assert(contains(firstRun, "profile:MINING_WORKER:true"))

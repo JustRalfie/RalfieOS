@@ -44,7 +44,7 @@ function Ui.new(options)
     local value = initial or ""
     while true do
       self:clear(); self:heading(title); self:line(label); self:line("> " .. value .. "_")
-      self:line("Enter Continue  Esc Back")
+      self:line("Enter Continue  Backspace empty Back")
       local event, key = os.pullEvent()
       if event == "char" then value = value .. key
       elseif event == "key" then

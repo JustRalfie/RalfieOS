@@ -45,7 +45,7 @@ local profileExistedAtBoot = profile ~= nil
 local managementModule = context.module_loader:load("ralfie.services.platform.device_management")
 if managementModule.ok and profile then
   context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
-    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end })
+    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end, get_software_version = context.software_version })
 end
 
 local function setupDevice()
@@ -80,7 +80,7 @@ local function setupDevice()
   if not saved.ok then showResult("ERROR", saved.error.message, true); return false end
   profile = saved.value
   if managementModule.ok then context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
-    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end }) end
+    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end, get_software_version = context.software_version }) end
   return true
 end
 
@@ -88,7 +88,7 @@ if not profile then setupDevice() end
 
 local dashboard
 
-local function runTunnelMiner(size)
+local function runTunnelMiner(size, distance)
   context.ui:clear()
   context.ui:heading(size .. "x" .. size .. " Tunnel Miner")
   if not context.turtle then
@@ -104,7 +104,7 @@ local function runTunnelMiner(size)
     return
   end
 
-  local ran, mined = xpcall(function() return miner.start(context) end, function(err) return tostring(err) end)
+  local ran, mined = xpcall(function() return miner.start(context, { distance = distance }) end, function(err) return tostring(err) end)
   if not ran then
     showResult("ERROR", "Tunnel Miner crashed: " .. mined, true)
     return
@@ -121,12 +121,28 @@ local function runTunnelMiner(size)
 end
 
 local function tunnelMenu()
-  local choice = menu.choose(context.ui, "NEW TUNNEL", {
-    { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" },
-    { id = "back", label = "Back" },
-  })
-  local size = tonumber(choice)
-  if size then runTunnelMiner(size) end
+  while true do
+    local choice = menu.choose(context.ui, "NEW TUNNEL", {
+      { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" },
+      { id = "back", label = "Back" },
+    }, { header = { "Choose Size" } })
+    local size = tonumber(choice)
+    if choice == "back" or not size then return end
+    local raw
+    if context.ui.input then raw = context.ui:input("NEW TUNNEL", "Size: " .. size .. "x" .. size .. "  Distance:", "")
+    else raw = context.ui:prompt("Tunnel distance:") end
+    if raw ~= nil then
+      local distance = tonumber(raw)
+      if not distance or distance < 1 or distance % 1 ~= 0 then
+        showResult("INVALID", "Distance must be a positive whole number.", true)
+      else
+        local confirmed = menu.choose(context.ui, "START TUNNEL?", { { id = "start", label = "Start" }, { id = "back", label = "Back" } }, {
+          header = { "Size: " .. size .. "x" .. size, "Distance: " .. distance },
+        })
+        if confirmed == "start" then runTunnelMiner(size, distance); return end
+      end
+    end
+  end
 end
 
 local function miningMenu()

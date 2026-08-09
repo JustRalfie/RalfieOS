@@ -24,6 +24,12 @@ function Bootstrap.start(options)
   local clock = options.clock or function()
     return os.epoch and os.epoch("utc") or os.time()
   end
+  local function installedVersion()
+    local loaded, chunk = pcall(loadFile, runtimeRoot .. "/manifest.lua")
+    if not loaded or type(chunk) ~= "function" then return "unknown" end
+    local ran, manifest = pcall(chunk)
+    return ran and type(manifest) == "table" and type(manifest.version) == "string" and manifest.version or "unknown"
+  end
   local Result = loadDirect(moduleRoot, "ralfie.core.result", loadFile)
   local ModuleLoader = loadDirect(moduleRoot, "ralfie.core.module_loader", loadFile)
   local loader = ModuleLoader.new({ root = moduleRoot, result = Result, loadfile = loadFile })
@@ -105,7 +111,7 @@ function Bootstrap.start(options)
     updater = updater, applications = applications, ui = Ui.new({ terminal = terminal, colors = colorApi, reader = lineReader }),
     module_loader = loader, turtle = options.turtle, filesystem = filesystem, fsx = Fsx, serialization = serializer, clock = clock,
     rednet = options.rednet or rednet, peripheral = options.peripheral or peripheral, gps = options.gps or gps, os = options.os or os,
-    pocket = options.pocket or pocket, device = Device,
+    pocket = options.pocket or pocket, device = Device, software_version = installedVersion,
   }
   context.ui.runtime_root = runtimeRoot
   context.device_profile = DeviceProfile.new({ filesystem = filesystem, fsx = Fsx, serialization = serializer, result = Result, device = Device, path = dataRoot .. "/device_profile.lua" })

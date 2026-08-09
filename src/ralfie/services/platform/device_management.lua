@@ -2,7 +2,8 @@ local Management = {}
 
 function Management.new(options)
   local manager = { profile_service = assert(options.profile_service), profile = assert(options.profile), device = assert(options.device), device_info = assert(options.device_info), os = assert(options.os),
-    get_state = options.get_state or function() return "READY" end, get_job = options.get_job or function() return nil end, history = {}, order = {}, limit = 20 }
+    get_state = options.get_state or function() return "READY" end, get_job = options.get_job or function() return nil end,
+    get_software_version = options.get_software_version or function() return options.software_version or "unknown" end, history = {}, order = {}, limit = 20 }
   local function remember(id, value)
     manager.history[id] = value; table.insert(manager.order, id)
     if #manager.order > manager.limit then manager.history[table.remove(manager.order, 1)] = nil end
@@ -12,8 +13,9 @@ function Management.new(options)
     return manager.get_job() ~= nil or state == "RUNNING" or state == "MINING" or state == "PAUSED" or state == "UNLOADING" or state == "RETURNING" or state == "RETURNING HOME"
   end
   function manager:info()
+    local readVersion, version = pcall(self.get_software_version)
     return { computer_id = self.os.getComputerID(), device_name = self.profile.device_name, device_type = self.device_info.type, role = self.profile.role,
-      fleet_name = self.profile.fleet_name, auto_start = self.profile.auto_start, software_version = "0.3.0", protocol_version = 1,
+      fleet_name = self.profile.fleet_name, auto_start = self.profile.auto_start, software_version = readVersion and version or "unknown", protocol_version = 1,
       wireless_modem = self.device_info.capabilities.wireless_modem, gps = self.device_info.capabilities.gps, worker_state = self.get_state(), active_job_id = self.get_job(), config_revision = self.profile.config_revision or 0 }
   end
   function manager:deviceName() return self.profile.device_name end

@@ -21,7 +21,7 @@ local function environment(job, outcome, updateOutcome)
     return outcome or Result.ok()
   end }
   local context = { turtle = { getItemCount = function() return 0 end, getFuelLevel = function() return 1000 end },
-    os = { getComputerID = function() return 17 end, getComputerLabel = function() return "Worker" end }, rednet = {}, peripheral = {}, logger = {} }
+    os = { getComputerID = function() return 17 end, getComputerLabel = function() return "Worker" end }, rednet = {}, peripheral = {}, logger = {}, software_version = function() return "0.3.6" end }
   local worker = FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner,
     perform_update = function() return updateOutcome or Result.ok({ version = "test" }) end })
   return worker, sent, function() return starts end
@@ -30,6 +30,7 @@ end
 local job = { job_id = "job-1", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 10 } }
 local worker, sent, starts = environment(job)
 assert(worker:status().state == "READY")
+assert(worker:status().software_version == "0.3.6", "worker status must report its installed RalfieOS version")
 assert(worker:run(function(current) return current.state == "READY" and starts() == 1 end).ok)
 assert(starts() == 1 and worker.state == "READY")
 local resultCount = 0
@@ -48,10 +49,10 @@ for _, message in ipairs(failedSent) do if message.kind == Protocol.types.JOB_RE
 assert(failed == 1)
 assert(failedWorker:handleJob(42, { job_id = "new-job", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 1 } }).status == "BUSY")
 
-local updateWorker = select(1, environment(job))
+local updateWorker = select(1, environment(job, nil, Result.ok({ version = "0.3.6" })))
 local updateRequest = { request_id = "update-1", target_id = 17, issued_by = 42 }
 local updated = updateWorker:handleUpdate(42, updateRequest)
-assert(updated.status == "SUCCESS" and updated.restart_required == true)
+assert(updated.status == "SUCCESS" and updated.restart_required == true and updated.version == "0.3.6")
 assert(updateWorker:handleUpdate(42, updateRequest) == updated, "duplicate update requests must replay the saved result")
 updateWorker.state = "RUNNING"
 assert(updateWorker:handleUpdate(42, { request_id = "update-busy", target_id = 17, issued_by = 42 }).status == "BUSY")

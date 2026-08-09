@@ -24,10 +24,16 @@ function FleetWorker.new(context, options)
     local occupied = 0
     for slot = 1, 16 do if context.turtle.getItemCount(slot) > 0 then occupied = occupied + 1 end end
     local record = worker.active
+    local version = context.software_version
+    if type(version) == "function" then
+      local read, value = pcall(version)
+      version = read and value or "unknown"
+    end
     return {
       state = worker.state, fuel_level = context.turtle.getFuelLevel(), inventory_used = occupied, inventory_slots = 16,
       job_id = record and record.id or nil, job_type = record and "MINING" or nil,
-      job_lifecycle = record and record.lifecycle or nil, job_distance = record and record.distance or nil, software_version = "0.1.0",
+      job_lifecycle = record and record.lifecycle or nil, job_distance = record and record.distance or nil,
+      software_version = version or "unknown",
     }
   end
   local network = Network.new({ protocol = Protocol, rednet = context.rednet, peripheral = context.peripheral, os = context.os,
@@ -50,13 +56,16 @@ function FleetWorker.new(context, options)
     return { job_id = payload.job_id, target_id = payload.target_id, status = status, reason = reason }
   end
 
-  local function performUpdate()
+  local function performUpdate(sender, payload)
     if options.perform_update then return options.perform_update(context) end
     local loaded = context.module_loader:load("ralfie.services.platform.remote_update")
     if not loaded.ok then return loaded end
     if not http or type(http.get) ~= "function" then return Result.fail("FLEET_WORKER.HTTP_REQUIRED", "HTTP is required to update this device") end
     return loaded.value.new({ filesystem = context.filesystem, fsx = context.fsx, result = Result, updater = context.updater,
-      http = http, load = load, output = function() end }):install("https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/", context.runtime_root)
+      http = http, load = load, output = function() end, progress = function(progress)
+        network:send(sender, Protocol.types.DEVICE_UPDATE_PROGRESS, { request_id = payload.request_id, target_id = payload.target_id,
+          stage = progress.stage, completed_files = progress.completed_files, total_files = progress.total_files, version = progress.version })
+      end }):install("https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/", context.runtime_root)
   end
 
   function worker:handleUpdate(sender, payload)
@@ -68,8 +77,8 @@ function FleetWorker.new(context, options)
     elseif self.state ~= "READY" and self.state ~= "PAUSED" then
       response.status, response.reason = "BUSY", "worker is " .. tostring(self.state):lower()
     else
-      local outcome = performUpdate()
-      if outcome and outcome.ok then response.status, response.restart_required = "SUCCESS", true
+      local outcome = performUpdate(sender, payload)
+      if outcome and outcome.ok then response.status, response.restart_required, response.version = "SUCCESS", true, outcome.value and outcome.value.version
       else response.status, response.reason = "FAILED", safeReason(outcome, "update failed") end
     end
     self.update_history[payload.request_id] = response

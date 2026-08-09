@@ -18,15 +18,15 @@ end
 
 local savedOs, savedKeys = _G.os, _G.keys
 _G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6 }
-local events = { { "char", "1" }, { "key", keys.backspace }, { "char", "2" }, { "key", keys.enter } }
+local events = { { "char", "B" }, { "char", "1" }, { "key", keys.backspace }, { "char", "2" }, { "key", keys.enter } }
 _G.os = { pullEvent = function() local event = table.remove(events, 1); return event[1], event[2] end }
 local inputScreen = terminal(26, 12)
-assert(Ui.input(inputScreen, "INPUT", "Value", "") == "2", "Backspace must edit input before submission")
+assert(Ui.input(inputScreen, "INPUT", "Value", "") == "B2", "Backspace must edit input while B remains ordinary text")
 events = { { "key", keys.escape } }
 assert(Ui.input(inputScreen, "INPUT", "Value", "") == nil, "Escape must cancel input")
 events = { { "key", keys.escape } }
 assert(Ui.confirm(inputScreen, "CONFIRM", {}) == false, "Escape must cancel confirmation")
-assert(Ui.isBackKey(keys.b) and Ui.isBackKey(keys.backspace) and Ui.isBackKey(keys.escape))
+assert(Ui.isBackKey(keys.b) and Ui.isBackKey(keys.backspace) and not Ui.isBackKey(keys.escape))
 _G.os, _G.keys = savedOs, savedKeys
 
 local running = { id = 17, label = "Steve", online = true, status = { state = "CHASING_ORE", job_id = "job-secret-42", job_distance = 100, fuel_level = 8421, inventory_used = 6, inventory_slots = 16 } }
@@ -84,10 +84,26 @@ assert(has(screen.lines(), "FLEET UPDATE"))
 assert(has(screen.lines(), "BUSY"))
 assert(has(screen.lines(), "Back"))
 
+screen = terminal(40, 12)
+Ui.update(screen, fleet, { target_version = "0.3.6", pending = { [17] = { stage = "DOWNLOADING", completed_files = 14, total_files = 20 } }, results = {} }, 1)
+assert(has(screen.lines(), "Target: v0.3.6"))
+assert(has(screen.lines(), "Downloading 14/20"), "update progress must show completed manifest files")
+screen = terminal(40, 12)
+Ui.update(screen, fleet, { target_version = "0.3.6", pending = {}, results = { [17] = { status = "VERIFIED", version = "0.3.6" } }, resolved = true }, 1)
+assert(has(screen.lines(), "Verified v0.3.6") and has(screen.lines(), "Update Pocket"))
+
 screen = terminal(26, 12)
 Ui.render(screen, fleet, 17)
 assert(has(screen.lines(), "MAIN FLEET"))
 assert(has(screen.lines(), "1 Turtles"))
 assert(has(screen.lines(), "[M] Menu"))
+
+screen = terminal(40, 12)
+ready.status.software_version = "0.3.6"
+Ui.render(screen, fleet, 17)
+assert(has(screen.lines(), "v0.3.6"), "wide fleet rows must expose the installed worker version")
+screen = terminal(40, 12)
+Ui.controllerMenu(screen, 1)
+assert(has(screen.lines(), "v0.3.6") and has(screen.lines(), "Back"))
 
 print("pocket UI tests passed")
