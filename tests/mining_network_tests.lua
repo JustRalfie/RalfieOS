@@ -28,6 +28,10 @@ assert(not Protocol.valid(Protocol.message(Protocol.types.JOB_ASSIGN, { id = 42 
 assert(Protocol.jobAckValid({ job_id = "job-1", target_id = 17, status = "ACCEPTED" }))
 assert(Protocol.jobStatusValid({ job_id = "job-1", job_type = "MINING", lifecycle = "RUNNING", distance = 10 }))
 assert(Protocol.jobResultValid({ job_id = "job-1", target_id = 17, status = "SUCCESS" }))
+local updatePayload = { request_id = "update-1", target_id = 17, issued_by = 42 }
+local updateMessage = assert(Protocol.message(Protocol.types.DEVICE_UPDATE_REQUEST, { id = 42 }, updatePayload))
+assert(Protocol.valid(updateMessage))
+assert(not Protocol.valid(Protocol.message(Protocol.types.DEVICE_UPDATE_REQUEST, { id = 42 }, { target_id = 17, issued_by = 42 })))
 
 local statusReader = MiningStatus.new({
   turtle = { getFuelLevel = function() return "unlimited" end },
@@ -91,6 +95,11 @@ assert(commandRecords["return-1"].result.status == "SUCCESS", "a terminal result
 local wrongTarget = assert(Protocol.message(Protocol.types.COMMAND, { id = 42 }, { command_id = "wrong-target", command = "RETURN_HOME", target_id = 99, issued_by = 42 }))
 received = { 42, wrongTarget }; client:tick(33)
 assert(sent[#sent].message.payload.status == "REJECTED", "wrong-target commands must be rejected")
+client.update_handler = function(sender, payload)
+  return { request_id = payload.request_id, target_id = payload.target_id, status = "SUCCESS", restart_required = true }
+end
+received = { 42, updateMessage }; client:tick(34)
+assert(sent[#sent].message.type == Protocol.types.DEVICE_UPDATE_RESULT and sent[#sent].message.payload.status == "SUCCESS")
 
 local unloadRecord = { command_id = "unload-1", command = "UNLOAD", target_id = 17, status = "SUCCESS" }
 local pauseRecord = { command_id = "pause-1", command = "PAUSE", target_id = 17, status = "SUCCESS" }

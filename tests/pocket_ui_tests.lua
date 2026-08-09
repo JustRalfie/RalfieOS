@@ -51,4 +51,12 @@ running.device_info = { role = "MINING_WORKER", fleet_name = "Main", software_ve
 Ui.info(screen, running)
 assert(has(screen.lines(), "job-secret-42"))
 
+local fleet = {
+  onlineCount = function() return 1 end,
+  list = function() return { ready } end,
+}
+screen = terminal(40, 12)
+Ui.render(screen, fleet, 17, { pending = {}, results = { [17] = { status = "BUSY" } } })
+assert(has(screen.lines(), "1 done, 1 busy"))
+
 print("pocket UI tests passed")

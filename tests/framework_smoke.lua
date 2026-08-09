@@ -141,6 +141,8 @@ local deploymentManifest = dofile("src/ralfie/manifest.lua")
 local requiredDeploymentFiles = {
   "apps/miner/fleet_worker.lua", "ralfie.lua", "services/platform/mining_protocol.lua",
   "services/platform/mining_network.lua", "pocket/main.lua", "launchers/mining_command.lua",
+  "apps/miner/miner.lua", "apps/miner/miner_5x5.lua", "apps/miner/miner_9x9.lua",
+  "miner.lua", "miner_5x5.lua", "miner_9x9.lua",
 }
 local declared = {}
 for _, path in ipairs(deploymentManifest.files) do declared[path] = true; Fsx.write(fs, "/fleet-source/" .. path, "new:" .. path) end

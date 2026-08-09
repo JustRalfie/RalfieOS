@@ -39,3 +39,9 @@ The protocol adds `JOB_ASSIGN`, `JOB_ACK`, `JOB_STATUS`, and `JOB_RESULT`. The f
 An active job reports its ID, type, distance, and lifecycle through regular `STATUS` and direct `JOB_STATUS` transitions. Terminal `JOB_RESULT` is exactly one of `SUCCESS`, `FAILED`, or `CANCELLED`. Normal completion returns the worker to `READY`. A managed miner failure reports `FAILED` and leaves the worker in `ERROR`, rather than claiming it can safely accept another job. RETURN_HOME cancels the active job at the miner's existing safe boundary, then completes or fails independently as a command; a successful final return returns the worker to `READY`.
 
 PAUSE, RESUME, and UNLOAD continue to operate on the same active job; they do not create or complete it. A job ID is idempotent for the current worker process: the newest 20 IDs retain their ACK and terminal result for replay, but rebooting the turtle clears that in-memory history. Multiple Pocket Computers remain unarbitrated; a second job assignment while one is active is `BUSY`.
+
+## Fleet updates
+
+The Pocket's Fleet overview provides `Update All`. It sends a targeted `DEVICE_UPDATE_REQUEST` with a bounded, in-memory `request_id` to each online worker in `READY` or `PAUSED`. The worker validates its target and state, then invokes its own existing GitHub updater; the Pocket never sends program files over Rednet. `DEVICE_UPDATE_RESULT` reports `SUCCESS`, `FAILED`, `BUSY`, or `REJECTED` directly to the issuing Pocket. Successful remote updates report `restart_required = true`, so workers can be restarted deliberately after any paused work is handled.
+
+Workers in active states are not updated by this action and are listed as `BUSY`. Duplicate request IDs replay the stored result and do not run the updater twice. Once all remote results or timeouts have been collected, the Pocket updates and reboots itself last.

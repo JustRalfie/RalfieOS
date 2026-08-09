@@ -10,7 +10,7 @@ function FleetWorker.new(context, options)
   local Protocol = assert(options.protocol, "fleet worker requires mining protocol")
   local Network = assert(options.network, "fleet worker requires mining network")
   local Miner = assert(options.miner, "fleet worker requires miner")
-  local worker = { state = "READY", active = nil, history = {}, order = {}, history_limit = options.history_limit or 20 }
+  local worker = { state = "READY", active = nil, history = {}, order = {}, history_limit = options.history_limit or 20, update_history = {}, update_order = {} }
 
   local function remember(id, record)
     worker.history[id] = record
@@ -33,6 +33,7 @@ function FleetWorker.new(context, options)
   local network = Network.new({ protocol = Protocol, rednet = context.rednet, peripheral = context.peripheral, os = context.os,
     logger = context.logger, status = { read = statusReader }, job_handler = function(sender, payload) return worker:handleJob(sender, payload) end,
     device_handler = context.device_manager and function(kind, sender, payload) return context.device_manager:handle(kind, sender, payload) end,
+    update_handler = function(sender, payload) return worker:handleUpdate(sender, payload) end,
     label_reader = context.device_manager and function() return context.device_manager:deviceName() end })
 
   local function sendStatus(record)
@@ -47,6 +48,34 @@ function FleetWorker.new(context, options)
   end
   local function ack(payload, status, reason)
     return { job_id = payload.job_id, target_id = payload.target_id, status = status, reason = reason }
+  end
+
+  local function performUpdate()
+    if options.perform_update then return options.perform_update(context) end
+    local loaded = context.module_loader:load("ralfie.services.platform.remote_update")
+    if not loaded.ok then return loaded end
+    if not http or type(http.get) ~= "function" then return Result.fail("FLEET_WORKER.HTTP_REQUIRED", "HTTP is required to update this device") end
+    return loaded.value.new({ filesystem = context.filesystem, fsx = context.fsx, result = Result, updater = context.updater,
+      http = http, load = load, output = function() end }):install("https://raw.githubusercontent.com/JustRalfie/RalfieOS/main/", context.runtime_root)
+  end
+
+  function worker:handleUpdate(sender, payload)
+    local previous = self.update_history[payload.request_id]
+    if previous then return previous end
+    local response = { request_id = payload.request_id, target_id = payload.target_id }
+    if payload.target_id ~= context.os.getComputerID() then
+      response.status, response.reason = "REJECTED", "request is for a different device"
+    elseif self.state ~= "READY" and self.state ~= "PAUSED" then
+      response.status, response.reason = "BUSY", "worker is " .. tostring(self.state):lower()
+    else
+      local outcome = performUpdate()
+      if outcome and outcome.ok then response.status, response.restart_required = "SUCCESS", true
+      else response.status, response.reason = "FAILED", safeReason(outcome, "update failed") end
+    end
+    self.update_history[payload.request_id] = response
+    table.insert(self.update_order, payload.request_id)
+    if #self.update_order > self.history_limit then self.update_history[table.remove(self.update_order, 1)] = nil end
+    return response
   end
 
   function worker:handleJob(sender, payload)
@@ -74,6 +103,7 @@ function FleetWorker.new(context, options)
       get_job_details = function() return { type = "MINING", lifecycle = record.lifecycle, distance = record.distance } end,
       job_handler = function(sender, payload) return worker:handleJob(sender, payload) end,
       device_handler = context.device_manager and function(kind, sender, payload) return context.device_manager:handle(kind, sender, payload) end,
+      update_handler = function(sender, payload) return worker:handleUpdate(sender, payload) end,
       label_reader = context.device_manager and function() return context.device_manager:deviceName() end,
       on_state_change = function(state)
         if state == "PAUSED" then record.lifecycle = "PAUSED"
@@ -112,7 +142,8 @@ function FleetWorker.start(context, options)
   local Protocol; Protocol, failed = load("ralfie.services.platform.mining_protocol"); if not Protocol then return failed end
   local Network; Network, failed = load("ralfie.services.platform.mining_network"); if not Network then return failed end
   local Miner; Miner, failed = load("ralfie.apps.miner.miner"); if not Miner then return failed end
-  return FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner, history_limit = options and options.history_limit }):run(options and options.should_stop)
+  return FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner, history_limit = options and options.history_limit,
+    perform_update = options and options.perform_update }):run(options and options.should_stop)
 end
 
 return FleetWorker

@@ -6,7 +6,7 @@ local Ui = dofile(root .. "/pocket/ui.lua")
 
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
-local fleet, selected, detail, info, command, job = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, false, nil, nil
+local fleet, selected, detail, info, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, false, nil, nil, nil
 local function now() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
 local function selectOnline()
   if selected and fleet:canCommand(selected) then return end
@@ -17,7 +17,38 @@ local function redraw()
   selectOnline()
   if detail and selected and fleet.miners[selected] then
     if info then Ui.info(term, fleet.miners[selected]) else Ui.command(term, fleet.miners[selected], command and command.state) end
-  else Ui.render(term, fleet, selected) end
+  else Ui.render(term, fleet, selected, updateBatch) end
+end
+local function finishFleetUpdate()
+  if not updateBatch or updateBatch.local_started then return end
+  updateBatch.local_started = true
+  updateBatch.local_result = "Updating Pocket..."
+  local updated = dofile(root .. "/update.lua")
+  if updated and updated.ok then
+    updateBatch.local_result = "Pocket updated. Restarting..."
+    if os.reboot then os.reboot() end
+  else
+    updateBatch.local_result = "Pocket update failed."
+  end
+end
+local function requestFleetUpdate()
+  updateBatch = { pending = {}, results = {} }
+  local issuedBy = network:identity().id
+  for _, miner in ipairs(fleet:list()) do
+    if miner.online then
+      local state = Ui.userState(miner)
+      if state == "READY" or state == "PAUSED" then
+        local requestId = "update-" .. tostring(os.epoch("utc")) .. "-" .. miner.id
+        updateBatch.pending[miner.id] = { id = requestId, sent_at = now() }
+        if not network:send(miner.id, Protocol.types.DEVICE_UPDATE_REQUEST, { request_id = requestId, target_id = miner.id, issued_by = issuedBy }) then
+          updateBatch.pending[miner.id] = nil; updateBatch.results[miner.id] = { status = "FAILED", reason = "could not send request" }
+        end
+      else
+        updateBatch.results[miner.id] = { status = "BUSY", reason = "worker is " .. state:lower() }
+      end
+    end
+  end
+  if next(updateBatch.pending) == nil then finishFleetUpdate() end
 end
 local function receive(sender, message)
   local time = now()
@@ -26,6 +57,13 @@ local function receive(sender, message)
     local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance
   end
   if message.type == Protocol.types.DEVICE_INFO and fleet.miners[message.sender.id] then fleet.miners[message.sender.id].device_info = message.payload end
+  if updateBatch and message.type == Protocol.types.DEVICE_UPDATE_RESULT then
+    local pending = updateBatch.pending[message.sender.id]
+    if pending and pending.id == message.payload.request_id then
+      updateBatch.pending[message.sender.id] = nil
+      updateBatch.results[message.sender.id] = { status = message.payload.status, reason = message.payload.reason, restart_required = message.payload.restart_required }
+    end
+  end
   if command and message.sender.id == command.target_id and command.state == "RESULT UNKNOWN" and fleet:canCommand(command.target_id) then
     network:send(command.target_id, Protocol.types.COMMAND, { command_id = command.id, command = command.kind, target_id = command.target_id, issued_by = network:identity().id })
     command.state = "IN_PROGRESS"
@@ -100,6 +138,12 @@ while true do
     if command and command.state == "SENT" and time - command.sent_at >= 10 then command.state = "ACK TIMEOUT" end
     if command and command.state ~= "SUCCESS" and command.state ~= "FAILED" and command.state ~= "CANCELLED" and not fleet:canCommand(command.target_id) then command.state = "RESULT UNKNOWN" end
     if math.floor(time) % 30 == 0 then network:broadcast(Protocol.types.HELLO) end
+    if updateBatch and not updateBatch.local_started then
+      for id, pending in pairs(updateBatch.pending) do
+        if time - pending.sent_at >= 30 then updateBatch.pending[id] = nil; updateBatch.results[id] = { status = "FAILED", reason = "update request timed out" } end
+      end
+      if next(updateBatch.pending) == nil then finishFleetUpdate() end
+    end
     timer = os.startTimer(1)
   elseif event == "key" then
     if detail and a == keys.b then
@@ -118,6 +162,7 @@ while true do
         command = { id = id, kind = kind, target_id = selected, sent_at = now(), state = "SENT" }
         network:send(selected, Protocol.types.COMMAND, { command_id = id, command = kind, target_id = selected, issued_by = network:identity().id })
       end
+    elseif not detail and a == keys.a and not updateBatch then requestFleetUpdate()
     elseif not detail and a == keys.enter and selected then detail = true
     elseif not detail and (a == keys.up or a == keys.down) then
       local miners = fleet:list(); local index = 1

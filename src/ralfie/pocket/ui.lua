@@ -53,7 +53,7 @@ local function actionHintLines(actions, width)
   return lines
 end
 
-function Ui.render(terminal, fleet, selected)
+function Ui.render(terminal, fleet, selected, updateBatch)
   terminal.clear()
   writeLine(terminal, 1, "RALFIE MINING COMMAND")
   writeLine(terminal, 3, "Miners: " .. fleet:onlineCount() .. " online")
@@ -62,6 +62,17 @@ function Ui.render(terminal, fleet, selected)
     if line > select(2, terminal.getSize()) - 3 then break end
     writeLine(terminal, line, (selected == miner.id and "> " or "  ") .. "#" .. miner.id .. " " .. (miner.label or "Unnamed miner")); line = line + 1
     writeLine(terminal, line, Ui.userState(miner)); line = line + 2
+  end
+  if updateBatch then
+    local pending, complete, busy = 0, 0, 0
+    for _ in pairs(updateBatch.pending) do pending = pending + 1 end
+    for _, result in pairs(updateBatch.results) do
+      complete = complete + 1
+      if result.status == "BUSY" then busy = busy + 1 end
+    end
+    writeLine(terminal, select(2, terminal.getSize()), updateBatch.local_result or ("Update: " .. pending .. " pending, " .. complete .. " done" .. (busy > 0 and ", " .. busy .. " busy" or "")))
+  else
+    writeLine(terminal, select(2, terminal.getSize()), "[A] Update All")
   end
 end
 

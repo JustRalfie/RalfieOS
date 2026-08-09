@@ -69,16 +69,17 @@ end
 
 if not profile then setupDevice() end
 
-local function runMiner()
+local function runTunnelMiner(size)
   context.ui:clear()
-  context.ui:heading("Tunnel Miner")
+  context.ui:heading(size .. "x" .. size .. " Tunnel Miner")
   if not context.turtle then
     showResult("UNAVAILABLE", "Tunnel Miner requires a turtle.", true)
     return
   end
 
-  context.ui:status("START", "Starting Tunnel Miner...", false)
-  local miner, loadError = safeLoad("ralfie.apps.miner.miner")
+  context.ui:status("START", "Starting " .. size .. "x" .. size .. " Tunnel Miner...", false)
+  local moduleName = size == 3 and "ralfie.apps.miner.miner" or (size == 5 and "ralfie.apps.miner.miner_5x5" or "ralfie.apps.miner.miner_9x9")
+  local miner, loadError = safeLoad(moduleName)
   if not miner then
     showResult("ERROR", "Tunnel Miner failed to load: " .. loadError, true)
     return
@@ -97,32 +98,20 @@ local function runMiner()
     showResult("STOPPED", errorMessage(mined, "Tunnel Miner failed."), true)
     return
   end
-  showResult("DONE", "Tunnel Miner finished.", false)
+  showResult("DONE", size .. "x" .. size .. " Tunnel Miner finished.", false)
 end
 
-local function runMiner5x5()
-  context.ui:clear()
-  context.ui:heading("5x5 Tunnel Miner")
-  if not context.turtle then showResult("UNAVAILABLE", "5x5 Tunnel Miner requires a turtle.", true); return end
-  local miner, loadError = safeLoad("ralfie.apps.miner.miner_5x5")
-  if not miner then showResult("ERROR", "5x5 Tunnel Miner failed to load: " .. loadError, true); return end
-  local ran, mined = xpcall(function() return miner.start(context) end, function(err) return tostring(err) end)
-  if not ran then showResult("ERROR", "5x5 Tunnel Miner crashed: " .. mined, true)
-  elseif not mined.ok then showResult("STOPPED", errorMessage(mined, "5x5 Tunnel Miner failed."), true)
-  else showResult("DONE", "5x5 Tunnel Miner finished.", false) end
+local function tunnelMenu()
+  local choice = menu.choose(context.ui, "Tunnel Miner", {
+    { id = "3", label = "3x3 Tunnel", description = { "Standard tunnel miner." } },
+    { id = "5", label = "5x5 Tunnel", description = { "Large tunnel miner." } },
+    { id = "9", label = "9x9 Tunnel", description = { "Extra-large tunnel miner." } },
+    { id = "back", label = "Back" },
+  })
+  local size = tonumber(choice)
+  if size then runTunnelMiner(size) end
 end
 
-local function runMiner9x9()
-  context.ui:clear()
-  context.ui:heading("9x9 Tunnel Miner")
-  if not context.turtle then showResult("UNAVAILABLE", "9x9 Tunnel Miner requires a turtle.", true); return end
-  local miner, loadError = safeLoad("ralfie.apps.miner.miner_9x9")
-  if not miner then showResult("ERROR", "9x9 Tunnel Miner failed to load: " .. loadError, true); return end
-  local ran, mined = xpcall(function() return miner.start(context) end, function(err) return tostring(err) end)
-  if not ran then showResult("ERROR", "9x9 Tunnel Miner crashed: " .. mined, true)
-  elseif not mined.ok then showResult("STOPPED", errorMessage(mined, "9x9 Tunnel Miner failed."), true)
-  else showResult("DONE", "9x9 Tunnel Miner finished.", false) end
-end
 local function miningMenu()
   while true do
     local choice = menu.choose(context.ui, "Mining", {
@@ -130,25 +119,8 @@ local function miningMenu()
         id = "tunnel_miner",
         label = "Tunnel Miner",
         description = {
-          "Digs a 3x3 tunnel and places torches.",
-          "Returns home and dumps items into the",
-          "chest behind the turtle.",
-        },
-      },
-      {
-        id = "tunnel_miner_5x5",
-        label = "5x5 Tunnel Miner",
-        description = {
-          "Digs a large 5x5 tunnel with ore chasing,",
-          "fluid safety, unloading, and recovery.",
-        },
-      },
-      {
-        id = "tunnel_miner_9x9",
-        label = "9x9 Tunnel Miner",
-        description = {
-          "Excavates a massive 9x9 tunnel with ore chasing,",
-          "fluid safety, unloading, and recovery.",
+          "Choose a 3x3, 5x5, or 9x9 tunnel.",
+          "Each uses the existing mining engine.",
         },
       },
       {
@@ -161,9 +133,7 @@ local function miningMenu()
       },
       { id = "back", label = "Back" },
     })
-    if choice == "tunnel_miner" then runMiner() end
-    if choice == "tunnel_miner_5x5" then runMiner5x5() end
-    if choice == "tunnel_miner_9x9" then runMiner9x9() end
+    if choice == "tunnel_miner" then tunnelMenu() end
     if choice == "fleet_worker" then
       local worker, loadError = safeLoad("ralfie.apps.miner.fleet_worker")
       if not worker then showResult("ERROR", "Fleet Worker failed to load: " .. loadError, true)

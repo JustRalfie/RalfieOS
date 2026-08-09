@@ -5,7 +5,7 @@ function MiningNetwork.new(options)
     protocol = assert(options.protocol, "mining network requires protocol"), rednet = options.rednet,
     peripheral = options.peripheral, os = options.os or os, status = assert(options.status, "mining network requires status"),
     logger = options.logger, heartbeat_interval = options.heartbeat_interval or 15, opened = false, last_heartbeat = nil,
-    command_handler = options.command_handler, job_handler = options.job_handler, device_handler = options.device_handler, label_reader = options.label_reader,
+    command_handler = options.command_handler, job_handler = options.job_handler, device_handler = options.device_handler, update_handler = options.update_handler, label_reader = options.label_reader,
   }
 
   local function log(level, event, context)
@@ -77,6 +77,11 @@ function MiningNetwork.new(options)
       local handled, ack = pcall(self.device_handler, "CONFIG", sender, message.payload)
       if not handled or type(ack) ~= "table" then return false end
       self:send(sender, self.protocol.types.DEVICE_CONFIG_ACK, ack)
+    elseif message.type == self.protocol.types.DEVICE_UPDATE_REQUEST then
+      if message.payload.issued_by ~= sender or not self.update_handler then return false end
+      local handled, updateResult = pcall(self.update_handler, sender, message.payload)
+      if not handled or type(updateResult) ~= "table" then return false end
+      self:send(sender, self.protocol.types.DEVICE_UPDATE_RESULT, updateResult)
     else return false end
     return true
   end

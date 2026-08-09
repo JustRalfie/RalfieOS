@@ -2,7 +2,7 @@ local Result = dofile("src/ralfie/core/result.lua")
 local Protocol = dofile("src/ralfie/services/platform/mining_protocol.lua")
 local FleetWorker = dofile("src/ralfie/apps/miner/fleet_worker.lua")
 
-local function environment(job, outcome)
+local function environment(job, outcome, updateOutcome)
   local sent, delivered, starts = {}, false, 0
   local Network = { new = function(options)
     local network = { opened = true }
@@ -22,7 +22,8 @@ local function environment(job, outcome)
   end }
   local context = { turtle = { getItemCount = function() return 0 end, getFuelLevel = function() return 1000 end },
     os = { getComputerID = function() return 17 end, getComputerLabel = function() return "Worker" end }, rednet = {}, peripheral = {}, logger = {} }
-  local worker = FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner })
+  local worker = FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner,
+    perform_update = function() return updateOutcome or Result.ok({ version = "test" }) end })
   return worker, sent, function() return starts end
 end
 
@@ -46,4 +47,13 @@ local failed = 0
 for _, message in ipairs(failedSent) do if message.kind == Protocol.types.JOB_RESULT and message.payload.status == "FAILED" then failed = failed + 1 end end
 assert(failed == 1)
 assert(failedWorker:handleJob(42, { job_id = "new-job", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 1 } }).status == "BUSY")
+
+local updateWorker = select(1, environment(job))
+local updateRequest = { request_id = "update-1", target_id = 17, issued_by = 42 }
+local updated = updateWorker:handleUpdate(42, updateRequest)
+assert(updated.status == "SUCCESS" and updated.restart_required == true)
+assert(updateWorker:handleUpdate(42, updateRequest) == updated, "duplicate update requests must replay the saved result")
+updateWorker.state = "RUNNING"
+assert(updateWorker:handleUpdate(42, { request_id = "update-busy", target_id = 17, issued_by = 42 }).status == "BUSY")
+assert(updateWorker:handleUpdate(42, { request_id = "update-wrong", target_id = 99, issued_by = 42 }).status == "REJECTED")
 print("fleet worker tests passed")

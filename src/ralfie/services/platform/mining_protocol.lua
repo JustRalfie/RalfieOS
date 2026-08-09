@@ -7,6 +7,7 @@ local Protocol = {
     COMMAND_ACK = "COMMAND_ACK", COMMAND_RESULT = "COMMAND_RESULT",
     JOB_ASSIGN = "JOB_ASSIGN", JOB_ACK = "JOB_ACK", JOB_STATUS = "JOB_STATUS", JOB_RESULT = "JOB_RESULT",
     DEVICE_INFO_REQUEST = "DEVICE_INFO_REQUEST", DEVICE_INFO = "DEVICE_INFO", DEVICE_CONFIG_SET = "DEVICE_CONFIG_SET", DEVICE_CONFIG_ACK = "DEVICE_CONFIG_ACK",
+    DEVICE_UPDATE_REQUEST = "DEVICE_UPDATE_REQUEST", DEVICE_UPDATE_RESULT = "DEVICE_UPDATE_RESULT",
   },
 }
 
@@ -68,6 +69,14 @@ function Protocol.deviceConfigAckValid(payload)
     (payload.status == "SUCCESS" or payload.status == "INVALID" or payload.status == "BUSY" or payload.status == "FAILED" or payload.status == "REJECTED") and
     (payload.reason == nil or type(payload.reason) == "string")
 end
+function Protocol.deviceUpdateRequestValid(payload)
+  return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and type(payload.issued_by) == "number"
+end
+function Protocol.deviceUpdateResultValid(payload)
+  return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and
+    (payload.status == "SUCCESS" or payload.status == "FAILED" or payload.status == "BUSY" or payload.status == "REJECTED") and
+    (payload.reason == nil or type(payload.reason) == "string") and (payload.restart_required == nil or type(payload.restart_required) == "boolean")
+end
 
 function Protocol.commandValid(payload)
   return type(payload) == "table" and commandId(payload.command_id) and (payload.command == "RETURN_HOME" or payload.command == "UNLOAD" or payload.command == "PAUSE" or payload.command == "RESUME") and
@@ -107,6 +116,8 @@ function Protocol.valid(message)
   if message.type == Protocol.types.DEVICE_INFO then return Protocol.deviceInfoValid(message.payload) end
   if message.type == Protocol.types.DEVICE_CONFIG_SET then return Protocol.deviceConfigSetValid(message.payload) end
   if message.type == Protocol.types.DEVICE_CONFIG_ACK then return Protocol.deviceConfigAckValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_UPDATE_REQUEST then return Protocol.deviceUpdateRequestValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_UPDATE_RESULT then return Protocol.deviceUpdateResultValid(message.payload) end
   return true
 end
 
