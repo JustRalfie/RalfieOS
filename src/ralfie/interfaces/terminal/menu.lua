@@ -1,6 +1,10 @@
 local Menu = {}
 
 function Menu.choose(ui, title, entries)
+  if os and os.pullEvent and keys and ui.terminal then
+    local HubUi = dofile((ui.runtime_root or "/ralfie") .. "/interfaces/terminal/hub_ui.lua")
+    return HubUi.new(ui.terminal, ui.colors):choose(title, entries)
+  end
   ui:clear()
   ui:heading(title)
   for index, entry in ipairs(entries) do

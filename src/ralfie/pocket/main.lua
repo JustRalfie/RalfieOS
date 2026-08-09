@@ -23,6 +23,7 @@ local function receive(sender, message)
   if message.type == Protocol.types.JOB_STATUS and fleet.miners[message.sender.id] then
     local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance
   end
+  if message.type == Protocol.types.DEVICE_INFO and fleet.miners[message.sender.id] then fleet.miners[message.sender.id].device_info = message.payload end
   if command and message.sender.id == command.target_id and command.state == "RESULT UNKNOWN" and fleet:canCommand(command.target_id) then
     network:send(command.target_id, Protocol.types.COMMAND, { command_id = command.id, command = command.kind, target_id = command.target_id, issued_by = network:identity().id })
     command.state = "IN_PROGRESS"
@@ -35,6 +36,30 @@ local function receive(sender, message)
     if message.type == Protocol.types.JOB_ACK then job.state = message.payload.status == "ACCEPTED" and "IN_PROGRESS" or message.payload.status
     elseif message.type == Protocol.types.JOB_RESULT then job.state = message.payload.status .. (message.payload.reason and (": " .. message.payload.reason) or "") end
   end
+end
+local function requestDeviceInfo()
+  if selected and fleet:canCommand(selected) then
+    network:send(selected, Protocol.types.DEVICE_INFO_REQUEST, { target_id = selected, issued_by = network:identity().id })
+  end
+end
+local function configureDevice()
+  local miner = selected and fleet.miners[selected]
+  if not miner or not miner.online or not miner.device_info then return end
+  term.clear(); term.setCursorPos(1, 1); term.write("DEVICE SETUP")
+  term.setCursorPos(1, 3); term.write("1 Name  2 Fleet  3 Auto")
+  term.setCursorPos(1, 5); term.write("Edit: ")
+  local choice = read()
+  local key = choice == "1" and "device_name" or (choice == "2" and "fleet_name" or (choice == "3" and "auto_start" or nil))
+  if not key then return end
+  term.setCursorPos(1, 7); term.write(key == "auto_start" and "Auto-start [Y/N]: " or "New value: ")
+  local raw = read()
+  local value = key == "auto_start" and raw:lower() == "y" or raw
+  if key ~= "auto_start" and value == "" then return end
+  term.setCursorPos(1, 9); term.write("Confirm [Y/N]: ")
+  if read():lower() ~= "y" then return end
+  local id = "config-" .. tostring(os.epoch("utc")) .. "-" .. selected
+  network:send(selected, Protocol.types.DEVICE_CONFIG_SET, { request_id = id, target_id = selected, issued_by = network:identity().id,
+    expected_revision = miner.device_info.config_revision, changes = { [key] = value } })
 end
 local function assignJob()
   local miner = selected and fleet.miners[selected]
@@ -76,6 +101,8 @@ while true do
     timer = os.startTimer(1)
   elseif event == "key" then
     if detail and a == keys.b then detail = false
+    elseif detail and a == keys.s then requestDeviceInfo()
+    elseif detail and a == keys.e then configureDevice()
     elseif detail and a == keys.j then assignJob()
     elseif detail and (a == keys.r or a == keys.u or a == keys.p or a == keys.c) and selected and fleet:canCommand(selected) then
       local id = tostring(os.epoch("utc")) .. "-" .. selected

@@ -5,14 +5,15 @@ function MiningNetwork.new(options)
     protocol = assert(options.protocol, "mining network requires protocol"), rednet = options.rednet,
     peripheral = options.peripheral, os = options.os or os, status = assert(options.status, "mining network requires status"),
     logger = options.logger, heartbeat_interval = options.heartbeat_interval or 15, opened = false, last_heartbeat = nil,
-    command_handler = options.command_handler, job_handler = options.job_handler,
+    command_handler = options.command_handler, job_handler = options.job_handler, device_handler = options.device_handler, label_reader = options.label_reader,
   }
 
   local function log(level, event, context)
     if network.logger and network.logger[level] then pcall(network.logger[level], network.logger, event, context) end
   end
   function network:identity()
-    return { id = self.os.getComputerID(), label = self.os.getComputerLabel and self.os.getComputerLabel() or nil }
+    local label = self.label_reader and self.label_reader() or (self.os.getComputerLabel and self.os.getComputerLabel() or nil)
+    return { id = self.os.getComputerID(), label = label }
   end
   function network:send(recipient, kind, payload)
     if not self.opened then return false end
@@ -66,6 +67,16 @@ function MiningNetwork.new(options)
       if not handled or type(ack) ~= "table" then return false end
       self:send(sender, self.protocol.types.JOB_ACK, ack)
       if type(jobResult) == "table" then self:send(sender, self.protocol.types.JOB_RESULT, jobResult) end
+    elseif message.type == self.protocol.types.DEVICE_INFO_REQUEST then
+      if message.payload.issued_by ~= sender or not self.device_handler then return false end
+      local handled, info = pcall(self.device_handler, "INFO", sender, message.payload)
+      if not handled or type(info) ~= "table" then return false end
+      self:send(sender, self.protocol.types.DEVICE_INFO, info)
+    elseif message.type == self.protocol.types.DEVICE_CONFIG_SET then
+      if message.payload.issued_by ~= sender or not self.device_handler then return false end
+      local handled, ack = pcall(self.device_handler, "CONFIG", sender, message.payload)
+      if not handled or type(ack) ~= "table" then return false end
+      self:send(sender, self.protocol.types.DEVICE_CONFIG_ACK, ack)
     else return false end
     return true
   end

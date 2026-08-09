@@ -31,7 +31,12 @@ local function runScenario(options)
   }
   local bootstrap = {
     start = function()
-      return Result.ok({ ui = ui, module_loader = moduleLoader, turtle = {} })
+      local device = {
+        detect = function() return { type = "TURTLE", capabilities = { wireless_modem = false } } end,
+        roles = function() return { "MINING_WORKER", "STANDALONE_MINER", "UNCONFIGURED" } end,
+      }
+      return Result.ok({ ui = ui, module_loader = moduleLoader, turtle = {}, device = device, peripheral = {}, gps = {},
+        device_profile = { load = function() return Result.ok({ device_name = "Test", role = "STANDALONE_MINER", auto_start = false, fleet_name = "Main" }) end, save = function(_, profile) return Result.ok(profile) end } })
     end,
   }
   local environment = setmetatable({

@@ -26,8 +26,10 @@ end
 function Ui.command(terminal, miner, state)
   terminal.clear()
   local status = miner.status or {}
+  local info = miner.device_info or {}
   writeLine(terminal, 1, miner.label or ("Miner #" .. miner.id))
   writeLine(terminal, 3, "State: " .. tostring(status.state or "UNKNOWN"))
+  if info.role then writeLine(terminal, 2, tostring(info.role):gsub("_", " ")) end
   writeLine(terminal, 4, "Fuel: " .. tostring(status.fuel_level or "?"))
   writeLine(terminal, 5, "Inventory: " .. tostring(status.inventory_used or "?") .. "/" .. tostring(status.inventory_slots or 16))
   if status.job_id then
@@ -35,11 +37,11 @@ function Ui.command(terminal, miner, state)
     writeLine(terminal, 7, "Distance: " .. tostring(status.job_distance or "?"))
   end
   local controls = status.job_id and 9 or 7
-  if status.state == "READY" then writeLine(terminal, controls, "[J] Assign Job  [B] Back")
+  if status.state == "READY" then writeLine(terminal, controls, "[J] Assign  [S] Info"); writeLine(terminal, controls + 1, "[E] Edit  [B] Back")
   else
     writeLine(terminal, controls, "[R] Return  [U] Unload")
     writeLine(terminal, controls + 1, "[P] Pause  [C] Resume")
-    writeLine(terminal, controls + 2, "[B] Back")
+    writeLine(terminal, controls + 2, "[S] Info [E] Edit [B] Back")
   end
   if state then writeLine(terminal, controls + 4, "Command: " .. state) end
 end

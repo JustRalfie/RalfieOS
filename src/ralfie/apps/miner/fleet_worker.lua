@@ -31,7 +31,9 @@ function FleetWorker.new(context, options)
     }
   end
   local network = Network.new({ protocol = Protocol, rednet = context.rednet, peripheral = context.peripheral, os = context.os,
-    logger = context.logger, status = { read = statusReader }, job_handler = function(sender, payload) return worker:handleJob(sender, payload) end })
+    logger = context.logger, status = { read = statusReader }, job_handler = function(sender, payload) return worker:handleJob(sender, payload) end,
+    device_handler = context.device_manager and function(kind, sender, payload) return context.device_manager:handle(kind, sender, payload) end,
+    label_reader = context.device_manager and function() return context.device_manager:deviceName() end })
 
   local function sendStatus(record)
     if record then network:send(record.recipient, Protocol.types.JOB_STATUS, jobStatus(record)) end
@@ -57,7 +59,7 @@ function FleetWorker.new(context, options)
     local record = { id = payload.job_id, distance = payload.job.distance, recipient = sender, lifecycle = "ACCEPTED" }
     record.ack = ack(payload, "ACCEPTED")
     remember(record.id, record)
-    self.active, self.state = record, "STARTING"
+    self.active, self.state = record, "STARTING"; context.worker_state, context.active_job_id = self.state, record.id
     sendStatus(record)
     return record.ack
   end
@@ -65,18 +67,20 @@ function FleetWorker.new(context, options)
   local function runActive()
     local record = worker.active
     if not record then return end
-    record.lifecycle, worker.state = "RUNNING", "RUNNING"; sendStatus(record)
+    record.lifecycle, worker.state = "RUNNING", "RUNNING"; context.worker_state, context.active_job_id = worker.state, record.id; sendStatus(record)
     local cancelled = false
     local outcome = Miner.start(context, {
       distance = record.distance, job_id = record.id,
       get_job_details = function() return { type = "MINING", lifecycle = record.lifecycle, distance = record.distance } end,
       job_handler = function(sender, payload) return worker:handleJob(sender, payload) end,
+      device_handler = context.device_manager and function(kind, sender, payload) return context.device_manager:handle(kind, sender, payload) end,
+      label_reader = context.device_manager and function() return context.device_manager:deviceName() end,
       on_state_change = function(state)
         if state == "PAUSED" then record.lifecycle = "PAUSED"
         elseif state == "RETURNING HOME" then record.lifecycle = cancelled and "CANCELLED" or "RETURNING"
         elseif state == "UNLOADING" then record.lifecycle = "UNLOADING"
         elseif state == "MINING" and not cancelled then record.lifecycle = "RUNNING" end
-        worker.state = state; sendStatus(record)
+        worker.state = state; context.worker_state, context.active_job_id = state, record.id; sendStatus(record)
       end,
       on_return_home = function()
         if not cancelled then cancelled = true; finalize(record, "CANCELLED", "return home requested") end
@@ -84,6 +88,7 @@ function FleetWorker.new(context, options)
     })
     if not record.result then finalize(record, outcome.ok and "SUCCESS" or "FAILED", outcome.ok and nil or safeReason(outcome, "miner failed")) end
     if outcome.ok then worker.active, worker.state = nil, "READY" else worker.active, worker.state = nil, "ERROR" end
+    context.worker_state, context.active_job_id = worker.state, nil
   end
 
   function worker:run(shouldStop)

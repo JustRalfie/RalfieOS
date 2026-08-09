@@ -1,5 +1,5 @@
 return {
-  version = "0.2.0",
+  version = "0.3.0",
   api_version = 1,
   launchers = {
     { source = "launchers/ralf.lua", target = "/ralf.lua" },
@@ -19,6 +19,9 @@ return {
     "bootstrap/application_loader.lua",
     "bootstrap/init.lua",
     "services/platform/configuration.lua",
+    "services/platform/device.lua",
+    "services/platform/device_profile.lua",
+    "services/platform/device_management.lua",
     "services/platform/logging.lua",
     "services/platform/updating.lua",
     "services/platform/remote_update.lua",
@@ -36,6 +39,7 @@ return {
     "services/operations/unloading.lua",
     "services/operations/fluid.lua",
     "interfaces/terminal/ui.lua",
+    "interfaces/terminal/hub_ui.lua",
     "interfaces/terminal/menu.lua",
     "interfaces/terminal/miner_dashboard.lua",
     "pocket/fleet.lua",

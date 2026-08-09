@@ -1,5 +1,7 @@
 local tests = {
   "framework_smoke.lua", "fluid_tests.lua", "launcher_tests.lua", "menu_tests.lua", "miner_dashboard_tests.lua", "miner_tests.lua",
+  "device_profile_tests.lua",
+  "device_management_tests.lua",
   "fleet_worker_tests.lua",
   "mining_command_integration_tests.lua", "mining_network_tests.lua", "ore_discovery_api_tests.lua", "ore_tests.lua", "unloading_tests.lua", "world_tests.lua",
 }

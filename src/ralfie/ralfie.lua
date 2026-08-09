@@ -37,6 +37,37 @@ if not menu then
   return false
 end
 
+local deviceInfo = context.device.detect({ turtle = context.turtle, pocket = context.pocket, terminal = context.ui.terminal, peripheral = context.peripheral, gps = context.gps })
+local loadedProfile = context.device_profile:load(deviceInfo)
+local profile = loadedProfile.ok and loadedProfile.value or nil
+local managementModule = context.module_loader:load("ralfie.services.platform.device_management")
+if managementModule.ok and profile then
+  context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
+    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end })
+end
+
+local function setupDevice()
+  context.ui:clear(); context.ui:heading("RALFIE OS SETUP")
+  context.ui:line("Detected: " .. deviceInfo.type)
+  context.ui:line(deviceInfo.capabilities.wireless_modem and "Wireless Modem" or "No wireless modem")
+  local entries = {}
+  for _, role in ipairs(context.device.roles(deviceInfo)) do table.insert(entries, { id = role, label = role:gsub("_", " ") }) end
+  table.insert(entries, { id = "cancel", label = "Cancel" })
+  local role = menu.choose(context.ui, "Choose role", entries)
+  if not role or role == "cancel" then return false end
+  local name = context.ui:prompt("Device Name:")
+  if not name or name == "" then context.ui:status("INVALID", "A device name is required.", true); return false end
+  local auto = context.ui:prompt("Auto-start role? [Y/N]:"):lower() == "y"
+  local saved = context.device_profile:save({ device_name = name, role = role, auto_start = auto, fleet_name = profile and profile.fleet_name or "Main", settings = {} }, deviceInfo)
+  if not saved.ok then showResult("ERROR", saved.error.message, true); return false end
+  profile = saved.value
+  if managementModule.ok then context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
+    get_state = function() return context.worker_state or "READY" end, get_job = function() return context.active_job_id end }) end
+  return true
+end
+
+if not profile then setupDevice() end
+
 local function runMiner()
   context.ui:clear()
   context.ui:heading("Tunnel Miner")
@@ -126,16 +157,53 @@ local function miningMenu()
   end
 end
 
+local function runFleetWorker()
+  if not context.turtle then showResult("UNAVAILABLE", "Fleet Worker requires a turtle.", true); return end
+  local worker, loadError = safeLoad("ralfie.apps.miner.fleet_worker")
+  if not worker then showResult("ERROR", "Fleet Worker failed to load: " .. loadError, true); return end
+  local ran, result = xpcall(function() return worker.start(context) end, function(err) return tostring(err) end)
+  if not ran then showResult("ERROR", "Fleet Worker crashed: " .. result, true)
+  elseif not result.ok then showResult("STOPPED", errorMessage(result, "Fleet Worker stopped."), true) end
+end
+
+local function runFleetCommand()
+  if not deviceInfo.capabilities.wireless_modem then showResult("NO MODEM", "Fleet Command requires a wireless modem.", true); return end
+  local ran, result = xpcall(function() return dofile(context.runtime_root .. "/pocket/main.lua") end, function(err) return tostring(err) end)
+  if not ran then showResult("ERROR", "Fleet Command crashed: " .. result, true) end
+end
+
+local function dashboard()
+  context.ui:clear(); context.ui:heading("DEVICE DASHBOARD")
+  context.ui:line("Device: " .. (profile and profile.device_name or "Unconfigured"))
+  context.ui:line("Type: " .. deviceInfo.type)
+  context.ui:line("Role: " .. (profile and profile.role or "UNCONFIGURED"))
+  context.ui:line("Network: " .. (deviceInfo.capabilities.wireless_modem and "ONLINE" or "NO MODEM"))
+  waitForEnter()
+end
+
+local function updateSystem()
+  local updated = dofile(context.runtime_root .. "/update.lua")
+  if not updated or not updated.ok then context.ui:status("UPDATE", "Update failed; see message above.", true) end
+end
+
+if profile and profile.role == "MINING_WORKER" and profile.auto_start then
+  runFleetWorker()
+end
+
 while true do
-  local choice = menu.choose(context.ui, "RalfieOS", {
-    { id = "mining", label = "Mining" },
-    { id = "update", label = "Update" },
-    { id = "exit", label = "Exit" },
+  local controller = profile and profile.role == "FLEET_CONTROLLER"
+  local title = "RALFIE OS 0.3 - " .. (profile and profile.device_name or deviceInfo.type)
+  local choice = menu.choose(context.ui, title, controller and {
+    { id = "fleet", label = "Fleet" }, { id = "setup", label = "Device Setup" }, { id = "dashboard", label = "Devices" }, { id = "update", label = "Update" }, { id = "exit", label = "Exit" },
+  } or {
+    { id = "dashboard", label = "Dashboard" }, { id = "mining", label = "Mining" }, { id = "fleet", label = "Fleet" }, { id = "setup", label = "Device Setup" }, { id = "update", label = "Update" }, { id = "exit", label = "Exit" },
   })
+  if choice == "dashboard" then dashboard() end
   if choice == "mining" then miningMenu() end
-  if choice == "update" then
-    local updated = dofile("/ralfie/update.lua")
-    if not updated or not updated.ok then context.ui:status("UPDATE", "Update failed; see message above.", true) end
+  if choice == "fleet" then
+    if profile and profile.role == "MINING_WORKER" then runFleetWorker() else runFleetCommand() end
   end
+  if choice == "setup" then setupDevice() end
+  if choice == "update" then updateSystem() end
   if choice == "exit" then return true end
 end

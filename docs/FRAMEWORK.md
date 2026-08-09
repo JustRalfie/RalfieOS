@@ -45,3 +45,21 @@ The updater downloads the package manifest from the configured GitHub `main` bra
 ## Update source contract
 
 Run `dofile("/ralfie/update.lua")` to update an installed system from the same GitHub source. Both install paths retain `/ralfie-data`, check free space when available, and preserve rollback data until staged activation succeeds. If an interruption leaves `/ralfie.previous` while `/ralfie` is absent, restore it with `move /ralfie.previous /ralfie` before starting again. Downloads are verified for completeness and staged byte writes, but GitHub branch contents are not cryptographically authenticated.
+
+## Device Hub and profiles
+
+RalfieOS 0.3 detects Turtle/Advanced Turtle, Pocket, and normal Computer hardware, plus wireless-modem and GPS capability. Its first run creates `/ralfie-data/device_profile.lua`; updates preserve this profile. A profile contains `device_name`, compatible `role`, `auto_start`, `fleet_name`, and optional role settings. Corrupt or incompatible profiles are ignored and the setup wizard is shown again.
+
+Turtles can be `MINING_WORKER`, `STANDALONE_MINER`, or `UNCONFIGURED`. Pockets can be `FLEET_CONTROLLER` or `GENERAL`; normal computers offer `FLEET_CONTROLLER` or `GENERAL`. The hub offers only compatible roles. Device Setup changes local profile values; no remote profile-sync protocol exists.
+
+`MINING_WORKER` with `auto_start = true` launches the existing Fleet Worker after profile load. Fleet Controller routes to the existing Pocket Fleet Command; `/ralfie-mining-command.lua` remains a direct shortcut. `/RalfieOS.lua` and standalone miner workflows remain supported. To reconfigure, choose Device Setup from the hub; delete `/ralfie-data/device_profile.lua` to force first-run setup.
+
+## Terminal navigation
+
+RalfieOS 0.3 uses a shared terminal menu layer on CC:Tweaked: Up/Down selects, Enter opens, and Backspace/Escape returns. Menus clip long labels and scroll on narrow Pocket screens. Color terminals use highlighted selections; monochrome terminals retain the `>` selection marker and textual status labels. Plain typed menu input remains as a compatibility fallback outside CraftOS.
+
+## Remote device management
+
+Fleet Command can request safe device information and edit one connected RalfieOS turtle. `DEVICE_INFO_REQUEST` returns identity, profile metadata, capabilities, worker/job state, software version, and configuration revision. `DEVICE_CONFIG_SET` is a patch with a unique request ID; currently only `device_name`, `fleet_name`, `auto_start`, and a safe role change are editable. The turtle validates and atomically saves the profile before `DEVICE_CONFIG_ACK SUCCESS` is returned. Duplicate request IDs replay the saved ACK for the current process only.
+
+Role changes are rejected while a job or unsafe worker state is active. Offline devices cannot be edited; ERROR devices remain inspectable but are not made READY by configuration. Local Device Setup and remote changes use the same profile service. No offline queue, remote shell, arbitrary profile writes, ownership, or authentication is provided.

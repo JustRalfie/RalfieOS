@@ -6,6 +6,7 @@ local Protocol = {
     STATUS = "STATUS", PING = "PING", PONG = "PONG", COMMAND = "COMMAND",
     COMMAND_ACK = "COMMAND_ACK", COMMAND_RESULT = "COMMAND_RESULT",
     JOB_ASSIGN = "JOB_ASSIGN", JOB_ACK = "JOB_ACK", JOB_STATUS = "JOB_STATUS", JOB_RESULT = "JOB_RESULT",
+    DEVICE_INFO_REQUEST = "DEVICE_INFO_REQUEST", DEVICE_INFO = "DEVICE_INFO", DEVICE_CONFIG_SET = "DEVICE_CONFIG_SET", DEVICE_CONFIG_ACK = "DEVICE_CONFIG_ACK",
   },
 }
 
@@ -51,6 +52,22 @@ function Protocol.jobResultValid(payload)
     (payload.status == "SUCCESS" or payload.status == "FAILED" or payload.status == "CANCELLED") and
     (payload.reason == nil or type(payload.reason) == "string")
 end
+function Protocol.deviceInfoRequestValid(payload)
+  return type(payload) == "table" and type(payload.target_id) == "number" and type(payload.issued_by) == "number"
+end
+function Protocol.deviceInfoValid(payload)
+  return type(payload) == "table" and type(payload.computer_id) == "number" and type(payload.device_name) == "string" and type(payload.device_type) == "string" and
+    type(payload.role) == "string" and type(payload.auto_start) == "boolean" and type(payload.software_version) == "string" and type(payload.config_revision) == "number"
+end
+function Protocol.deviceConfigSetValid(payload)
+  return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and type(payload.issued_by) == "number" and type(payload.changes) == "table" and
+    (payload.expected_revision == nil or type(payload.expected_revision) == "number")
+end
+function Protocol.deviceConfigAckValid(payload)
+  return type(payload) == "table" and commandId(payload.request_id) and type(payload.target_id) == "number" and
+    (payload.status == "SUCCESS" or payload.status == "INVALID" or payload.status == "BUSY" or payload.status == "FAILED" or payload.status == "REJECTED") and
+    (payload.reason == nil or type(payload.reason) == "string")
+end
 
 function Protocol.commandValid(payload)
   return type(payload) == "table" and commandId(payload.command_id) and (payload.command == "RETURN_HOME" or payload.command == "UNLOAD" or payload.command == "PAUSE" or payload.command == "RESUME") and
@@ -86,6 +103,10 @@ function Protocol.valid(message)
   if message.type == Protocol.types.JOB_ACK then return Protocol.jobAckValid(message.payload) end
   if message.type == Protocol.types.JOB_STATUS then return Protocol.jobStatusValid(message.payload) end
   if message.type == Protocol.types.JOB_RESULT then return Protocol.jobResultValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_INFO_REQUEST then return Protocol.deviceInfoRequestValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_INFO then return Protocol.deviceInfoValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_CONFIG_SET then return Protocol.deviceConfigSetValid(message.payload) end
+  if message.type == Protocol.types.DEVICE_CONFIG_ACK then return Protocol.deviceConfigAckValid(message.payload) end
   return true
 end
 

@@ -190,7 +190,7 @@ function Miner.start(context, options)
   })
   network = MiningNetwork.new({
     protocol = MiningProtocol, status = statusReader, rednet = context.rednet, peripheral = context.peripheral,
-    os = context.os, logger = context.logger, command_handler = handleCommand, job_handler = options.job_handler,
+    os = context.os, logger = context.logger, command_handler = handleCommand, job_handler = options.job_handler, device_handler = options.device_handler, label_reader = options.label_reader,
   })
   local terminal = context.ui.terminal or { getSize = function() return 51, 19 end, isColor = function() return false end, setCursorPos = function() end, write = function() end, clear = function() end }
   local dashboard = Dashboard.new({ terminal = terminal, colors = context.ui.colors })

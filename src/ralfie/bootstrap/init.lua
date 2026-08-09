@@ -51,6 +51,10 @@ function Bootstrap.start(options)
   if not ApplicationLoader then return failure end
   local Ui; Ui, failure = requireModule("ralfie.interfaces.terminal.ui")
   if not Ui then return failure end
+  local Device; Device, failure = requireModule("ralfie.services.platform.device")
+  if not Device then return failure end
+  local DeviceProfile; DeviceProfile, failure = requireModule("ralfie.services.platform.device_profile")
+  if not DeviceProfile then return failure end
 
   local defaults = {
     system = {
@@ -101,7 +105,10 @@ function Bootstrap.start(options)
     updater = updater, applications = applications, ui = Ui.new({ terminal = terminal, colors = colorApi, reader = lineReader }),
     module_loader = loader, turtle = options.turtle, filesystem = filesystem, fsx = Fsx, serialization = serializer, clock = clock,
     rednet = options.rednet or rednet, peripheral = options.peripheral or peripheral, gps = options.gps or gps, os = options.os or os,
+    pocket = options.pocket or pocket, device = Device,
   }
+  context.ui.runtime_root = runtimeRoot
+  context.device_profile = DeviceProfile.new({ filesystem = filesystem, fsx = Fsx, serialization = serializer, result = Result, device = Device, path = dataRoot .. "/device_profile.lua" })
   local loadedApps = applications:loadAll(context)
   if not loadedApps.ok then
     logger:error("bootstrap.application_load_failed", loadedApps.error.context)
