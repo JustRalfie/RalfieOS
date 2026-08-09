@@ -22,7 +22,7 @@ local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
 
 local function run(blocks, options)
   options = options or {}
-  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {} }
+  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {} }
   for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
@@ -44,6 +44,7 @@ local function run(blocks, options)
     local x, y, z = target(direction)
     if state.blocks[key(x, y, z)] then return false, "blocked" end
     state.x, state.y, state.z = x, y, z
+    table.insert(state.move_positions, { x = x, y = y, z = z })
     return true
   end
   local function dig(direction)
@@ -82,7 +83,11 @@ local function run(blocks, options)
     should_stop = options.stop_after_digs and function() return state.digs >= options.stop_after_digs end or nil,
   })
   local outcome
-  if options.chase_direction then
+  if options.slice_boundary then
+    outcome = ore:discoverSliceBoundary()
+  elseif options.mine_slice_boundary then
+    outcome = ore:mineSliceBoundary()
+  elseif options.chase_direction then
     local direction = chaseDirections[options.chase_direction]
     local target = {
       key = key(direction.x, direction.y, direction.z),
@@ -320,5 +325,38 @@ local skippedChase, skippedChaseState, skippedChaseNavigation = run({ { x = 1, y
 })
 assert(skippedChase.ok and skippedChase.value.collected == 0 and skippedChaseState.digs == 0)
 restored(skippedChaseState, skippedChaseNavigation)
+
+local sliceBoundary, sliceState, sliceNavigation = run({
+  { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" }, -- front-facing
+  { x = 0, y = 1, z = -2, name = "minecraft:redstone_ore" }, -- left wall
+  { x = 0, y = 1, z = 2, name = "minecraft:deepslate_redstone_ore" }, -- right wall
+  { x = 0, y = 3, z = 0, name = "minecraft:coal_ore" }, -- ceiling center
+  { x = 0, y = 2, z = -2, name = "minecraft:emerald_ore" }, -- upper-left boundary
+  { x = 0, y = 2, z = 2, name = "minecraft:lapis_ore" }, -- upper-right boundary
+  { x = 0, y = 0, z = -2, name = "minecraft:copper_ore" }, -- lower-left side edge
+  { x = 0, y = 0, z = 2, name = "minecraft:iron_ore" }, -- lower-right side edge
+  { x = 0, y = 3, z = -1, name = "minecraft:gold_ore" }, -- upper-left ceiling
+  { x = 0, y = 3, z = 1, name = "minecraft:nether_gold_ore" }, -- upper-right ceiling
+}, { slice_boundary = true })
+assert(sliceBoundary.ok and #sliceBoundary.value.targets == 10)
+assert(sliceState.digs == 0 and #sliceState.inspected_directions == 10)
+assert(sliceState.moves == 8 and sliceState.turns == 6)
+for _, position in ipairs(sliceState.move_positions) do
+  assert(position.x == 0 and position.y >= 0 and position.y <= 2 and position.z >= -1 and position.z <= 1, "slice scan moved outside cleared 3x3 interior")
+end
+local sliceKeys, sliceNames = {}, {}
+for _, target in ipairs(sliceBoundary.value.targets) do
+  assert(not sliceKeys[target.key], "slice discovery returned a duplicate coordinate")
+  sliceKeys[target.key], sliceNames[target.data.name] = true, true
+end
+assert(sliceNames["minecraft:redstone_ore"] and sliceNames["minecraft:deepslate_redstone_ore"])
+assert(sliceNames["minecraft:diamond_ore"] and sliceNames["minecraft:coal_ore"])
+restored(sliceState, sliceNavigation)
+
+local boundaryChase, boundaryChaseState, boundaryChaseNavigation = run({
+  { x = 0, y = 1, z = -2, name = "minecraft:redstone_ore" },
+}, { mine_slice_boundary = true })
+assert(boundaryChase.ok and boundaryChase.value.collected == 1 and boundaryChaseState.digs == 1)
+restored(boundaryChaseState, boundaryChaseNavigation)
 
 print("ore tests passed")

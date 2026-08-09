@@ -205,6 +205,107 @@ function Ore.new(options)
     return result.ok({ anchor = anchor, targets = targets })
   end
 
+  function ore:discoverSliceBoundary(options)
+    options = options or {}
+    local anchor = copy(options.anchor or navigation:position())
+    local moveRetries = options.movement_retries or retries
+    local discovered, targets = {}, {}
+
+    local function addTarget(origin, direction, inspected)
+      if not inspected.value.present or not matches(inspected.value.data) then return end
+      local position = {
+        x = origin.x + direction.x,
+        y = origin.y + direction.y,
+        z = origin.z + direction.z,
+      }
+      local targetKey = key(position)
+      if discovered[targetKey] then return end
+      discovered[targetKey] = true
+      table.insert(targets, {
+        key = targetKey,
+        position = position,
+        origin = copy(origin),
+        direction = copyDirection(direction),
+        data = inspected.value.data,
+      })
+    end
+
+    local function restore(failure)
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      return failure
+    end
+
+    local function scan(direction)
+      local origin = copy(navigation:position())
+      local inspected
+      if direction.move then
+        inspected = adapter:inspect(direction.move)
+      else
+        local faced = navigation:face(direction.heading)
+        if not faced.ok then return faced end
+        inspected = adapter:inspect("forward")
+      end
+      if not inspected.ok then return inspected end
+      addTarget(origin, direction, inspected)
+      return result.ok(true)
+    end
+
+    local function moveWithin(direction)
+      return world:move(direction, moveRetries, false)
+    end
+
+    local function faceAndMove(heading)
+      local faced = navigation:face(heading)
+      if not faced.ok then return faced end
+      return moveWithin("forward")
+    end
+
+    local inspected = scan(directions[1]) -- Front-facing center block.
+    if not inspected.ok then return restore(inspected) end
+
+    local moved = faceAndMove(3) -- Lower-left interior position.
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[4])
+    if not inspected.ok then return restore(inspected) end
+    moved = moveWithin("up")
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[4])
+    if not inspected.ok then return restore(inspected) end
+    moved = moveWithin("up")
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[4])
+    if not inspected.ok then return restore(inspected) end
+    inspected = scan(directions[5]) -- Upper-left ceiling boundary.
+    if not inspected.ok then return restore(inspected) end
+
+    moved = faceAndMove(1) -- Cross the cleared top row.
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[5]) -- Ceiling center.
+    if not inspected.ok then return restore(inspected) end
+    moved = moveWithin("forward")
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[2])
+    if not inspected.ok then return restore(inspected) end
+    inspected = scan(directions[5]) -- Upper-right ceiling boundary.
+    if not inspected.ok then return restore(inspected) end
+
+    moved = moveWithin("down")
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[2])
+    if not inspected.ok then return restore(inspected) end
+    moved = moveWithin("down")
+    if not moved.ok then return restore(moved) end
+    inspected = scan(directions[2])
+    if not inspected.ok then return restore(inspected) end
+
+    moved = faceAndMove(3) -- Return to the normal center lane.
+    if not moved.ok then return restore(moved) end
+    local restored = restoreTunnel(anchor)
+    if not restored.ok then return restored end
+    return result.ok({ anchor = anchor, targets = targets })
+  end
+
   function ore:chase(target, options)
     options = options or {}
     local anchor = copy(options.anchor or navigation:position())
@@ -352,6 +453,43 @@ function Ore.new(options)
       local restored = restoreTunnel(anchor)
       if not restored.ok then return restored end
       if logger then logger:info("ore.completed", { ore_type = nil, collected = 0, limit_reached = false, inventory_full = false, abandoned = false }) end
+    end
+    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+  end
+
+  function ore:mineSliceBoundary(options)
+    options = options or {}
+    local anchor = copy(options.anchor or navigation:position())
+    if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
+      if logger then logger:warn("ore.inventory_full", { collected = 0, tunnel_position = anchor }) end
+      if ui then ui:status("ORE", "Inventory full; returning to tunnel", false) end
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      return result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = true, abandoned = false })
+    end
+
+    local discovered = ore:discoverSliceBoundary({ anchor = anchor, movement_retries = options.movement_retries })
+    if not discovered.ok then return discovered end
+
+    local processed = options.processed or {}
+    local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
+    for _, target in ipairs(discovered.value.targets) do
+      if not processed[target.key] then
+        local positioned = returnTo(target.origin)
+        if not positioned.ok then
+          local restored = restoreTunnel(anchor)
+          if not restored.ok then return restored end
+          return positioned
+        end
+        local chased = ore:chase(target, { anchor = anchor, processed = processed, max_size = options.max_size, should_stop = options.should_stop })
+        if not chased.ok then return chased end
+        collected = collected + chased.value.collected
+        detectedName = detectedName or chased.value.ore_type
+        limitReached = limitReached or chased.value.limit_reached
+        inventoryFull = inventoryFull or chased.value.inventory_full
+        abandoned = abandoned or chased.value.abandoned
+        if limitReached or inventoryFull or abandoned then break end
+      end
     end
     return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
   end

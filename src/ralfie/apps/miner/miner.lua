@@ -145,15 +145,11 @@ function Miner.start(context, options)
     return resultModule.ok(true)
   end
 
-  local function excavateSide(heading, slice)
+  local function excavateSide(heading)
     local entered = faceAndMove(heading)
     if not entered.ok then return entered end
     local column = world:clearColumn()
     if not column.ok then return column end
-    local chased = ore:mineExposed()
-    if not chased.ok then return chased end
-    local unloaded = unloadIfNeeded(slice, chased.value.inventory_full and "ore" or "tunnel")
-    if not unloaded.ok then return unloaded end
     return faceAndMove((heading + 2) % 4)
   end
 
@@ -183,16 +179,16 @@ function Miner.start(context, options)
     if not advanced.ok then return advanced end
     local center = world:clearColumn()
     if not center.ok then return center end
-    local chased = ore:mineExposed()
-    if not chased.ok then return chased end
-    local unloaded = unloadIfNeeded(step, chased.value.inventory_full and "ore" or "tunnel")
-    if not unloaded.ok then return unloaded end
-    local left = excavateSide(3, step)
+    local left = excavateSide(3)
     if not left.ok then return left end
-    local right = excavateSide(1, step)
+    local right = excavateSide(1)
     if not right.ok then return right end
     local original = navigation:face(0)
     if not original.ok then return original end
+    local chased = ore:mineSliceBoundary({ movement_retries = movementRetries })
+    if not chased.ok then return chased end
+    local unloaded = unloadIfNeeded(step, chased.value.inventory_full and "ore" or "tunnel")
+    if not unloaded.ok then return unloaded end
     if step % torchInterval == 0 then
       local torch = placeTorch()
       if not torch.ok then return torch end

@@ -131,7 +131,7 @@ local successful, successfulState = run({ distance = 2, items = { [1] = 12, [15]
 assert(successful.ok, successful.error and successful.error.message)
 assert(successful.value.position.x == 0 and successful.value.position.y == 0 and successful.value.position.z == 0)
 assert(successful.value.position.heading == 0)
-assert(successfulState.moves == 24)
+assert(successfulState.moves == 40)
 assert(successfulState.dropped[1] == 12)
 assert(successfulState.items[15] == 10 and successfulState.items[16] == 8)
 
@@ -193,12 +193,15 @@ local blocked, blockedState = run({ distance = 1, permanent_failure = true, item
 assert(not blocked.ok and blocked.error.code == "WORLD.MOVE_BLOCKED")
 assert(blockedState.moves == 3)
 
-local mineExposedCalls = 0
+local sliceBoundaryCalls = 0
 local fakeOre = {
   new = function()
     return {
       mineExposed = function()
-        mineExposedCalls = mineExposedCalls + 1
+        error("Miner must not use per-column ore scans after slice discovery is enabled")
+      end,
+      mineSliceBoundary = function()
+        sliceBoundaryCalls = sliceBoundaryCalls + 1
         return Result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = false, abandoned = false })
       end,
     }
@@ -207,6 +210,6 @@ local fakeOre = {
 local minerCompatibility = run({
   distance = 1, items = { [15] = 10, [16] = 2 }, module_overrides = { ["ralfie.services.operations.ore"] = fakeOre },
 })
-assert(minerCompatibility.ok and mineExposedCalls == 3, "Miner must continue using ore:mineExposed() for the center, left, and right columns of each slice")
+assert(minerCompatibility.ok and sliceBoundaryCalls == 1, "Miner must use one slice-level ore discovery call per completed tunnel slice")
 
 print("miner tests passed")
