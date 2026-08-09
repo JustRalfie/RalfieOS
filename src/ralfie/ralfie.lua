@@ -68,21 +68,41 @@ local function runMiner()
   showResult("DONE", "Tunnel Miner finished.", false)
 end
 
+local function runMiner5x5()
+  context.ui:clear()
+  context.ui:heading("5x5 Tunnel Miner")
+  if not context.turtle then showResult("UNAVAILABLE", "5x5 Tunnel Miner requires a turtle.", true); return end
+  local miner, loadError = safeLoad("ralfie.apps.miner.miner_5x5")
+  if not miner then showResult("ERROR", "5x5 Tunnel Miner failed to load: " .. loadError, true); return end
+  local ran, mined = xpcall(function() return miner.start(context) end, function(err) return tostring(err) end)
+  if not ran then showResult("ERROR", "5x5 Tunnel Miner crashed: " .. mined, true)
+  elseif not mined.ok then showResult("STOPPED", errorMessage(mined, "5x5 Tunnel Miner failed."), true)
+  else showResult("DONE", "5x5 Tunnel Miner finished.", false) end
+end
 local function miningMenu()
   while true do
     local choice = menu.choose(context.ui, "Mining", {
       {
         id = "tunnel_miner",
-        label = "Tunnel Miner",
+        label = "3x3 Tunnel Miner",
         description = {
           "Digs a 3x3 tunnel and places torches.",
           "Returns home and dumps items into the",
           "chest behind the turtle.",
         },
       },
+      {
+        id = "tunnel_miner_5x5",
+        label = "5x5 Tunnel Miner",
+        description = {
+          "Digs a large 5x5 tunnel with ore chasing,",
+          "fluid safety, unloading, and recovery.",
+        },
+      },
       { id = "back", label = "Back" },
     })
     if choice == "tunnel_miner" then runMiner() end
+    if choice == "tunnel_miner_5x5" then runMiner5x5() end
     if choice == "back" then return end
   end
 end

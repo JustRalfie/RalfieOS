@@ -16,6 +16,8 @@ function Miner.start(context, options)
   if not Navigation then return failed end
   local World; World, failed = load(context, "ralfie.services.operations.world")
   if not World then return failed end
+  local TunnelPattern; TunnelPattern, failed = load(context, "ralfie.services.operations.tunnel_pattern")
+  if not TunnelPattern then return failed end
   local Inventory; Inventory, failed = load(context, "ralfie.services.operations.inventory")
   if not Inventory then return failed end
   local Fuel; Fuel, failed = load(context, "ralfie.services.operations.fuel")
@@ -56,15 +58,20 @@ function Miner.start(context, options)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
   local excludedOreIds = options.excluded_ore_ids or config:get("miner.excluded_ore_ids", {})
   local inventoryFreeSlotMargin = options.inventory_free_slot_margin or config:get("miner.inventory_free_slot_margin", 1)
+  local tunnelWidth, tunnelHeight = options.width or 3, options.height or 3
+  local jobType = options.job_type or "tunnel_miner"
   if torchSlot == fuelSlot or torchSlot == fillerSlot or fuelSlot == fillerSlot or torchInterval < 1 then
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Filler, torch, and fuel slots must differ and torch interval must be positive")
+  end
+  if tunnelWidth < 3 or tunnelHeight < 3 or tunnelWidth % 2 ~= 1 or tunnelHeight % 2 ~= 1 then
+    return resultModule.fail("MINER.INVALID_PATTERN", "Tunnel width and height must be odd whole numbers of at least three")
   end
 
   local job
   local jobState = options.recovery
   if context.filesystem and context.fsx and context.serialization then
     job = Jobs.new({ filesystem = context.filesystem, fsx = context.fsx, serialization = context.serialization, result = resultModule, clock = context.clock })
-    if not jobState then jobState = { job_type = "tunnel_miner", id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", placed_torches = {}, configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot } } end
+    if not jobState then jobState = { job_type = jobType, id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", placed_torches = {}, configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot, width = tunnelWidth, height = tunnelHeight } } end
   end
   local placedTorches = (jobState and jobState.placed_torches) or {}
   if jobState then jobState.placed_torches = placedTorches end
@@ -208,6 +215,7 @@ function Miner.start(context, options)
     adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid,
     torch_positions = placedTorches, torch_slot = torchSlot, on_torch_changed = function() checkpoint(navigation:position()) end,
   })
+  local tunnelPattern = TunnelPattern.new({ navigation = navigation, world = world, result = resultModule, movement_retries = movementRetries })
   local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
@@ -235,7 +243,8 @@ function Miner.start(context, options)
       context = { required = torchesNeeded, available = torchCount },
     }))
   end
-  local fuelRequired = (distance * 12) + safetyMargin
+  local perSliceFuel = tunnelWidth == 3 and 12 or (tunnelPattern:movementEstimate(tunnelWidth, tunnelHeight) + 2)
+  local fuelRequired = (distance * perSliceFuel) + safetyMargin
   context.ui:status("CHECK", "Fuel required: " .. fuelRequired, false)
   local fuelReady = fuel:ensure(fuelRequired, torchSlot, fuelSlot)
   if not fuelReady.ok then return finishMiner(fuelReady) end
@@ -303,12 +312,17 @@ function Miner.start(context, options)
     view.slice = step - 1; minerUi:status("MINE", "Slice " .. step .. "/" .. distance, false)
     local advanced = world:move("forward", movementRetries)
     if not advanced.ok then return finishMiner(advanced) end
-    local center = world:clearColumn()
-    if not center.ok then return finishMiner(center) end
-    local left = excavateSide(3)
-    if not left.ok then return finishMiner(left) end
-    local right = excavateSide(1)
-    if not right.ok then return finishMiner(right) end
+    if tunnelWidth == 3 and tunnelHeight == 3 then
+      local center = world:clearColumn()
+      if not center.ok then return finishMiner(center) end
+      local left = excavateSide(3)
+      if not left.ok then return finishMiner(left) end
+      local right = excavateSide(1)
+      if not right.ok then return finishMiner(right) end
+    else
+      local cleared = tunnelPattern:clearSlice(tunnelWidth, tunnelHeight)
+      if not cleared.ok then return finishMiner(cleared) end
+    end
     local original = navigation:face(0)
     if not original.ok then return finishMiner(original) end
     local chased = ore:mineSliceBoundary({ movement_retries = movementRetries })
