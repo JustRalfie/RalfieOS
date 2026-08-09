@@ -1,0 +1,25 @@
+# Mining Fleet Communication
+
+The optional fleet layer uses Rednet protocol `ralfie:mining:v1` (version `1`). Every envelope contains `protocol`, `version`, `type`, and a `sender` identity with the ComputerCraft computer ID and optional computer label. The supported message types are `HELLO`, `HELLO_ACK`, `STATUS_REQUEST`, `STATUS`, `PING`, and `PONG`.
+
+Run the Pocket Computer application with `dofile("/ralfie/pocket/main.lua")` (or `/ralfie-mining-command.lua` after installation). It opens a wireless modem, broadcasts `HELLO` at startup and every 30 seconds, and records compatible `HELLO_ACK`/`STATUS` responses by computer ID.
+
+When a miner is running, its optional network client opens any available wireless modem. It responds to discovery with `HELLO_ACK` and `STATUS`, answers status and ping requests, and broadcasts a status heartbeat at most every 15 seconds. The client is polled both on miner status updates and at every navigation state change, so long ore returns, unload trips, and the final home return continue to refresh the heartbeat without altering movement logic. The Pocket considers a miner offline after 45 seconds without communication, but retains its last known entry.
+
+`STATUS` reports the live miner UI state, turtle fuel, occupied inventory slots, job ID when present, and software version. GPS coordinates are included only when `gps.locate()` succeeds; the miner's internal relative navigation position is never presented as GPS data. No modem is required: mining continues locally if networking is unavailable or fails.
+
+## Return Home command
+
+`COMMAND` currently supports only `RETURN_HOME`. Its payload contains a unique `command_id`, `command`, `target_id`, and `issued_by`. The target validates the envelope, sender, target ID, and command before replying directly to the issuing Pocket with `COMMAND_ACK`.
+
+An `ACCEPTED` acknowledgement means the request was recorded, not that the turtle is home. The miner waits for the existing slice-safe boundary, then uses its normal return, refill, and dump sequence. It sends `COMMAND_RESULT` with `SUCCESS` or `FAILED` when that sequence ends. Pocket ACK timeout is 10 seconds; a missing ACK is distinct from a long in-progress physical return, which remains visible through normal heartbeats/status.
+
+Each miner keeps the latest 20 command IDs. Duplicate delivery resends the saved ACK and, once available, the saved result without starting another return. Multiple Pocket Computers can issue commands; there is currently no ownership, locking, or authentication, so controllers must coordinate externally.
+
+Accepted commands move from pending to executing at the slice-safe boundary, then to one terminal result: `SUCCESS` or `FAILED` (with `CANCELLED` reserved for a future explicit cancellation path). The miner finalizes accepted commands through one guarded path, so a normal miner failure before the safe boundary also produces `FAILED`. History is in-memory only: idempotency and result replay last for the current miner process, not across a reboot.
+
+If the Pocket loses contact after an ACK, it shows `RESULT UNKNOWN`, not a guessed failure. When the miner reappears, the Pocket replays the same command ID so the bounded history can return the stored ACK/result.
+
+`UNLOAD` uses the same command lifecycle but is distinct from `RETURN_HOME`: at the next completed slice boundary it invokes the existing `Unloading:run` operation, which returns home, dumps, restores the saved mining position/heading, and resumes work. Success means that whole operation completed, even if the inventory was already empty. `RETURN_HOME` takes precedence: it cancels queued UNLOAD commands, and a later UNLOAD while return is pending/active receives `BUSY`.
+
+`PAUSE` is accepted during active work and completes only at the completed slice boundary. The miner then reports `PAUSED`, preserves its current checkpointed position and slice state, and waits with timed Rednet receives so heartbeats, status requests, duplicate replay, RETURN_HOME, and RESUME remain responsive without busy polling. `RESUME` is accepted only from `PAUSED` and returns the miner to normal slice progression. RETURN_HOME cancels a queued PAUSE and can recall a paused turtle; UNLOAD while paused is `BUSY`. A PAUSE received during unload waits until that operation has resumed safely.

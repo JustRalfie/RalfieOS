@@ -20,6 +20,7 @@ This catalogue is the approved planning boundary, not a promise to implement eve
 | state | platform | Versioned runtime records and checkpoints | core, lib, filesystem adapter |
 | capabilities | platform | Discover adapters/services and report availability | core, adapters |
 | networking | platform | Versioned local transport, peers, requests/events, trust hooks | core, modem adapter, configuration, logging |
+| mining protocol/network | platform | Optional Rednet discovery, status transport, and controlled mining-job commands for turtles | core |
 | updating | platform | Source manifests, compatibility preflight, staged install, rollback | core, filesystem adapter, configuration, logging, networking (optional) |
 | inventory | operations | Slot state, reservations, compaction, overflow outcomes | core, turtle/peripheral adapters, logging |
 | fuel | operations | Reserves, refuelling policy, affordability estimates | core, turtle adapter, inventory, configuration, logging |

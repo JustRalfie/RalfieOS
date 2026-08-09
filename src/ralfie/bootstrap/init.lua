@@ -100,6 +100,7 @@ function Bootstrap.start(options)
     runtime_root = runtimeRoot, data_root = dataRoot, module_root = moduleRoot, configuration = configuration, logger = logger,
     updater = updater, applications = applications, ui = Ui.new({ terminal = terminal, colors = colorApi, reader = lineReader }),
     module_loader = loader, turtle = options.turtle, filesystem = filesystem, fsx = Fsx, serialization = serializer, clock = clock,
+    rednet = options.rednet or rednet, peripheral = options.peripheral or peripheral, gps = options.gps or gps, os = options.os or os,
   }
   local loadedApps = applications:loadAll(context)
   if not loadedApps.ok then
