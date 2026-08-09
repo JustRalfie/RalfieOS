@@ -97,14 +97,19 @@ local function runTunnelMiner(size, distance)
   end
 
   context.ui:status("START", "Starting " .. size .. "x" .. size .. " Tunnel Miner...", false)
-  local moduleName = size == 3 and "ralfie.apps.miner.miner" or (size == 5 and "ralfie.apps.miner.miner_5x5" or "ralfie.apps.miner.miner_9x9")
-  local miner, loadError = safeLoad(moduleName)
-  if not miner then
+  local dispatchModule, loadError = safeLoad("ralfie.apps.miner.tunnel_dispatch")
+  if not dispatchModule then
     showResult("ERROR", "Tunnel Miner failed to load: " .. loadError, true)
     return
   end
+  local resultModule, resultError = safeLoad("ralfie.core.result")
+  if not resultModule then
+    showResult("ERROR", "Tunnel Miner failed to load: " .. resultError, true)
+    return
+  end
+  local dispatch = dispatchModule.new({ module_loader = context.module_loader, result = resultModule })
 
-  local ran, mined = xpcall(function() return miner.start(context, { distance = distance }) end, function(err) return tostring(err) end)
+  local ran, mined = xpcall(function() return dispatch:start(context, size, { distance = distance }) end, function(err) return tostring(err) end)
   if not ran then
     showResult("ERROR", "Tunnel Miner crashed: " .. mined, true)
     return

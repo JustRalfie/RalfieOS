@@ -17,7 +17,7 @@ local function has(lines, text)
 end
 
 local savedOs, savedKeys = _G.os, _G.keys
-_G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6 }
+_G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6, up = 7, down = 8 }
 local events = { { "char", "B" }, { "char", "1" }, { "key", keys.backspace }, { "char", "2" }, { "key", keys.enter } }
 _G.os = { pullEvent = function() local event = table.remove(events, 1); return event[1], event[2] end }
 local inputScreen = terminal(26, 12)
@@ -26,16 +26,23 @@ events = { { "key", keys.escape } }
 assert(Ui.input(inputScreen, "INPUT", "Value", "") == nil, "Escape must cancel input")
 events = { { "key", keys.escape } }
 assert(Ui.confirm(inputScreen, "CONFIRM", {}) == false, "Escape must cancel confirmation")
+events = { { "key", keys.down }, { "key", keys.enter } }
+local chosen = Ui.choose(inputScreen, "NEW JOB", { { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" } }, { "Tunnel Size" })
+assert(chosen == "5", "Pocket New Job tunnel picker must support arrow selection")
+assert(has(inputScreen.lines(), "Tunnel Size"), "tunnel picker must identify the selected job parameter")
+events = { { "key", keys.b } }
+assert(Ui.choose(inputScreen, "NEW JOB", { { id = "3", label = "3x3" } }) == nil, "Pocket New Job tunnel picker must provide Back")
 assert(Ui.isBackKey(keys.b) and Ui.isBackKey(keys.backspace) and not Ui.isBackKey(keys.escape))
 _G.os, _G.keys = savedOs, savedKeys
 
-local running = { id = 17, label = "Steve", online = true, status = { state = "CHASING_ORE", job_id = "job-secret-42", job_distance = 100, fuel_level = 8421, inventory_used = 6, inventory_slots = 16 } }
+local running = { id = 17, label = "Steve", online = true, status = { state = "CHASING_ORE", job_id = "job-secret-42", job_tunnel_size = 5, job_distance = 100, fuel_level = 8421, inventory_used = 6, inventory_slots = 16 } }
 assert(Ui.userState(running) == "MINING")
 assert(Ui.commandForKey(running, "p") == "PAUSE")
 assert(Ui.commandForKey(running, "c") == nil)
 local screen = terminal(26, 20)
 Ui.command(screen, running)
 assert(has(screen.lines(), "MINING"))
+assert(has(screen.lines(), "Tunnel    5x5"))
 assert(has(screen.lines(), "Distance  100"))
 assert(has(screen.lines(), "Pause"))
 assert(has(screen.lines(), "Recall"))
@@ -105,6 +112,6 @@ Ui.render(screen, fleet, 17)
 assert(has(screen.lines(), "v0.3.6"), "wide fleet rows must expose the installed worker version")
 screen = terminal(40, 12)
 Ui.controllerMenu(screen, 1)
-assert(has(screen.lines(), "v0.3.7") and has(screen.lines(), "Back"))
+assert(has(screen.lines(), "v0.3.8") and has(screen.lines(), "Back"))
 
 print("pocket UI tests passed")

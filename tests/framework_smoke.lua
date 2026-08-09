@@ -140,6 +140,7 @@ assert(Fsx.read(fs, "/installed/main.lua") == "return 'updated'")
 local deploymentManifest = dofile("src/ralfie/manifest.lua")
 local requiredDeploymentFiles = {
   "apps/miner/fleet_worker.lua", "ralfie.lua", "services/platform/mining_protocol.lua",
+  "apps/miner/tunnel_dispatch.lua",
   "services/platform/mining_network.lua", "pocket/main.lua", "launchers/mining_command.lua",
   "apps/miner/miner.lua", "apps/miner/miner_5x5.lua", "apps/miner/miner_9x9.lua",
   "miner.lua", "miner_5x5.lua", "miner_9x9.lua",
@@ -160,6 +161,7 @@ local fleetUpdated = deploymentUpdater:apply("/fleet-source", "/fleet-installed"
 assert(fleetUpdated.ok, fleetUpdated.error and fleetUpdated.error.message)
 assert(Fsx.read(fs, "/fleet-installed/ralfie.lua") == "new:ralfie.lua", "update must replace a stale managed menu")
 assert(Fsx.read(fs, "/fleet-installed/apps/miner/fleet_worker.lua") == "new:apps/miner/fleet_worker.lua", "update must install Fleet Worker")
+assert(Fsx.read(fs, "/fleet-installed/apps/miner/tunnel_dispatch.lua") == "new:apps/miner/tunnel_dispatch.lua", "update must install the shared tunnel selector")
 assert(Fsx.read(fs, "/fleet-installed/services/platform/mining_protocol.lua") == "new:services/platform/mining_protocol.lua")
 assert(Fsx.read(fs, "/fleet-installed/pocket/main.lua") == "new:pocket/main.lua")
 local fleetFresh = deploymentUpdater:apply("/fleet-source", "/fleet-fresh")

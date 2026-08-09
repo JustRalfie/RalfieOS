@@ -26,7 +26,7 @@ function MiningStatus.new(options)
       state = self.getState(), fuel_level = self.turtle.getFuelLevel(), inventory_used = occupied,
       inventory_slots = 16, position = position, job_id = self.getJob(), pending_command = self.getPendingCommand(), software_version = readVersion and softwareVersion or "unknown",
     }
-    if details then payload.job_type, payload.job_lifecycle, payload.job_distance = details.type, details.lifecycle, details.distance end
+    if details then payload.job_type, payload.job_lifecycle, payload.job_distance, payload.job_tunnel_size = details.type, details.lifecycle, details.distance, details.tunnel_size end
     return payload
   end
 

@@ -58,7 +58,7 @@ local function receive(sender, message)
     fleet:record(message.sender, message.payload, time); observeUpdateStatus(message.sender.id)
   end
   if message.type == Protocol.types.JOB_STATUS and fleet.miners[message.sender.id] then
-    local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance
+    local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance, status.job_tunnel_size = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance, message.payload.tunnel_size
   end
   if message.type == Protocol.types.DEVICE_INFO and fleet.miners[message.sender.id] then fleet.miners[message.sender.id].device_info = message.payload end
   if updateBatch and message.type == Protocol.types.DEVICE_UPDATE_PROGRESS then
@@ -115,15 +115,30 @@ end
 local function assignJob()
   local miner = selected and fleet.miners[selected]
   if not miner or not miner.online or miner.status.state ~= "READY" then return end
-  local distance = tonumber(Ui.input(term, "NEW MINING JOB", "Distance (whole number)", ""))
-  if not distance or distance < 1 or distance % 1 ~= 0 then
-    Ui.confirm(term, "INVALID DISTANCE", { "Use a positive whole number." })
-    return
+  while true do
+    local size = tonumber(Ui.choose(term, "NEW JOB", {
+      { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" }, { id = "back", label = "Back" },
+    }, { "Tunnel Size" }))
+    if not size then return end
+    local rawDistance = Ui.input(term, "NEW JOB", "Tunnel: " .. size .. "x" .. size .. "  Distance", "")
+    if rawDistance ~= nil then
+      local distance = tonumber(rawDistance)
+      if not distance or distance < 1 or distance % 1 ~= 0 then
+        Ui.confirm(term, "INVALID DISTANCE", { "Use a positive whole number." })
+      else
+        local confirmed = Ui.choose(term, "START JOB?", { { id = "start", label = "Start" }, { id = "back", label = "Back" } }, {
+          "Worker: " .. (miner.label or ("#" .. miner.id)), "Tunnel: " .. size .. "x" .. size, "Distance: " .. distance,
+        })
+        if confirmed == "start" then
+          local id = "job-" .. tostring(os.epoch("utc")) .. "-" .. selected
+          job = { id = id, target_id = selected, state = "SENT", tunnel_size = size }
+          network:send(selected, Protocol.types.JOB_ASSIGN, { job_id = id, target_id = selected, issued_by = network:identity().id, job = { type = "MINING", tunnel_size = size, distance = distance } })
+          return
+        end
+      end
+    end
+    -- Cancelling either distance or confirmation returns to the size picker.
   end
-  if not Ui.confirm(term, "ASSIGN MINING JOB?", { "Miner: " .. (miner.label or ("#" .. miner.id)), "Distance: " .. distance }) then return end
-  local id = "job-" .. tostring(os.epoch("utc")) .. "-" .. selected
-  job = { id = id, target_id = selected, state = "SENT" }
-  network:send(selected, Protocol.types.JOB_ASSIGN, { job_id = id, target_id = selected, issued_by = network:identity().id, job = { type = "MINING", distance = distance } })
 end
 network:broadcast(Protocol.types.HELLO)
 local timer = os.startTimer(1)

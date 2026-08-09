@@ -32,9 +32,23 @@ local function runScenario(options)
       return choice
     end,
   }
-  local moduleLoader = {
+  local moduleLoader
+  moduleLoader = {
     load = function(_, name)
       if name == "ralfie.interfaces.terminal.menu" then return Result.ok(menu) end
+      if name == "ralfie.core.result" then return Result.ok(Result) end
+      if name == "ralfie.apps.miner.tunnel_dispatch" then
+        return Result.ok({ new = function()
+          return {
+            start = function(_, context, size, minerOptions)
+              local moduleName = size == 3 and "ralfie.apps.miner.miner" or (size == 5 and "ralfie.apps.miner.miner_5x5" or "ralfie.apps.miner.miner_9x9")
+              local loaded = moduleLoader:load(moduleName)
+              if not loaded.ok then return loaded end
+              return loaded.value.start(context, minerOptions)
+            end,
+          }
+        end })
+      end
       if name == "ralfie.apps.miner.miner" or name == "ralfie.apps.miner.miner_5x5" or name == "ralfie.apps.miner.miner_9x9" then
         if options.loadFailure then return Result.fail("MODULE.LOAD_FAILED", "Miner module is unavailable") end
         return Result.ok({ start = (options.starts and options.starts[name]) or options.start })
@@ -128,9 +142,9 @@ assert(contains(success, "menu:START TUNNEL?"))
 assert(contains(success, "header:Size: 3x3") and contains(success, "header:Distance: 3"))
 
 local loadFailure = runScenario({ choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" }, loadFailure = true })
-assert(contains(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable"))
+assert(contains(loadFailure, "status:STOPPED:Miner module is unavailable"))
 assert(contains(loadFailure, "prompt:[Enter/B] Back:"))
-assert(appearsBefore(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable", "prompt:[Enter/B] Back:"))
+assert(appearsBefore(loadFailure, "status:STOPPED:Miner module is unavailable", "prompt:[Enter/B] Back:"))
 
 local exception = runScenario({
   choices = { "mining", "tunnel_miner", "3", "start", "back", "exit" },

@@ -9,7 +9,7 @@ function FleetWorker.new(context, options)
   local Result = assert(options.result, "fleet worker requires result module")
   local Protocol = assert(options.protocol, "fleet worker requires mining protocol")
   local Network = assert(options.network, "fleet worker requires mining network")
-  local Miner = assert(options.miner, "fleet worker requires miner")
+  local tunnelDispatch = assert(options.tunnel_dispatch, "fleet worker requires tunnel dispatch")
   local worker = { state = "READY", active = nil, history = {}, order = {}, history_limit = options.history_limit or 20, update_history = {}, update_order = {} }
 
   local function remember(id, record)
@@ -18,7 +18,7 @@ function FleetWorker.new(context, options)
     if #worker.order > worker.history_limit then worker.history[table.remove(worker.order, 1)] = nil end
   end
   local function jobStatus(record)
-    return { job_id = record.id, job_type = "MINING", lifecycle = record.lifecycle, distance = record.distance }
+    return { job_id = record.id, job_type = "MINING", lifecycle = record.lifecycle, distance = record.distance, tunnel_size = record.tunnel_size }
   end
   local function statusReader()
     local occupied = 0
@@ -32,7 +32,7 @@ function FleetWorker.new(context, options)
     return {
       state = worker.state, fuel_level = context.turtle.getFuelLevel(), inventory_used = occupied, inventory_slots = 16,
       job_id = record and record.id or nil, job_type = record and "MINING" or nil,
-      job_lifecycle = record and record.lifecycle or nil, job_distance = record and record.distance or nil,
+      job_lifecycle = record and record.lifecycle or nil, job_distance = record and record.distance or nil, job_tunnel_size = record and record.tunnel_size or nil,
       software_version = version or "unknown",
     }
   end
@@ -89,13 +89,17 @@ function FleetWorker.new(context, options)
   end
 
   function worker:handleJob(sender, payload)
+    if type(payload) ~= "table" or type(payload.job_id) ~= "string" or type(payload.target_id) ~= "number" or type(payload.job) ~= "table" then
+      return { job_id = type(payload) == "table" and payload.job_id or nil, target_id = type(payload) == "table" and payload.target_id or nil, status = "INVALID", reason = "malformed job" }
+    end
     local previous = self.history[payload.job_id]
     if previous then return previous.ack, previous.result end
     if payload.target_id ~= context.os.getComputerID() then return ack(payload, "REJECTED", "job is for a different turtle") end
     if payload.job.type ~= "MINING" then return ack(payload, "REJECTED", "unsupported job type") end
     if type(payload.job.distance) ~= "number" or payload.job.distance < 1 or payload.job.distance % 1 ~= 0 then return ack(payload, "INVALID", "distance must be a positive whole number") end
+    if not tunnelDispatch:moduleName(payload.job.tunnel_size) then return ack(payload, "INVALID", "tunnel size must be 3, 5, or 9") end
     if self.state ~= "READY" or self.active then return ack(payload, "BUSY", "worker is not ready") end
-    local record = { id = payload.job_id, distance = payload.job.distance, recipient = sender, lifecycle = "ACCEPTED" }
+    local record = { id = payload.job_id, distance = payload.job.distance, tunnel_size = payload.job.tunnel_size, recipient = sender, lifecycle = "ACCEPTED" }
     record.ack = ack(payload, "ACCEPTED")
     remember(record.id, record)
     self.active, self.state = record, "STARTING"; context.worker_state, context.active_job_id = self.state, record.id
@@ -108,9 +112,9 @@ function FleetWorker.new(context, options)
     if not record then return end
     record.lifecycle, worker.state = "RUNNING", "RUNNING"; context.worker_state, context.active_job_id = worker.state, record.id; sendStatus(record)
     local cancelled = false
-    local outcome = Miner.start(context, {
+    local outcome = tunnelDispatch:start(context, record.tunnel_size, {
       distance = record.distance, job_id = record.id,
-      get_job_details = function() return { type = "MINING", lifecycle = record.lifecycle, distance = record.distance } end,
+      get_job_details = function() return { type = "MINING", lifecycle = record.lifecycle, distance = record.distance, tunnel_size = record.tunnel_size } end,
       job_handler = function(sender, payload) return worker:handleJob(sender, payload) end,
       device_handler = context.device_manager and function(kind, sender, payload) return context.device_manager:handle(kind, sender, payload) end,
       update_handler = function(sender, payload) return worker:handleUpdate(sender, payload) end,
@@ -151,8 +155,8 @@ function FleetWorker.start(context, options)
   local Result, failed = load("ralfie.core.result"); if not Result then return failed end
   local Protocol; Protocol, failed = load("ralfie.services.platform.mining_protocol"); if not Protocol then return failed end
   local Network; Network, failed = load("ralfie.services.platform.mining_network"); if not Network then return failed end
-  local Miner; Miner, failed = load("ralfie.apps.miner.miner"); if not Miner then return failed end
-  return FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, miner = Miner, history_limit = options and options.history_limit,
+  local TunnelDispatch; TunnelDispatch, failed = load("ralfie.apps.miner.tunnel_dispatch"); if not TunnelDispatch then return failed end
+  return FleetWorker.new(context, { result = Result, protocol = Protocol, network = Network, tunnel_dispatch = TunnelDispatch.new({ module_loader = context.module_loader, result = Result }), history_limit = options and options.history_limit,
     perform_update = options and options.perform_update }):run(options and options.should_stop)
 end
 

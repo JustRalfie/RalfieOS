@@ -1,5 +1,5 @@
 local Ui = {}
-Ui.VERSION = "0.3.7"
+Ui.VERSION = "0.3.8"
 
 function Ui.isBackKey(key) return key == keys.b or key == keys.backspace end
 
@@ -84,6 +84,7 @@ function Ui.command(terminal, miner, selected, commandState)
   writeLine(terminal, 1, miner.label or ("Miner #" .. miner.id))
   writeLine(terminal, 2, state)
   local line = 4
+  if status.job_tunnel_size then writeLine(terminal, line, "Tunnel    " .. tostring(status.job_tunnel_size) .. "x" .. tostring(status.job_tunnel_size)); line = line + 1 end
   if status.job_distance then writeLine(terminal, line, "Distance  " .. tostring(status.job_distance)); line = line + 1 end
   writeLine(terminal, line, "Fuel      " .. tostring(status.fuel_level or "?")); line = line + 1
   writeLine(terminal, line, "Inventory " .. tostring(status.inventory_used or "?") .. "/" .. tostring(status.inventory_slots or 16)); line = line + 2
@@ -155,6 +156,24 @@ function Ui.update(terminal, fleet, updateBatch, selected)
   if updateBatch and updateBatch.resolved then writeLine(terminal, height - 2, totals.verified .. " verified  " .. totals.busy .. " busy  " .. totals.offline .. " offline") end
   writeLine(terminal, height - 1, updateBatch and updateBatch.resolved and "Enter Update Pocket  [B] Back" or "[B] Back")
   writeLine(terminal, height, updateBatch and updateBatch.resolved and "Remote results resolved" or "Requests continue in background")
+end
+
+function Ui.choose(terminal, title, entries, header)
+  local selected = 1
+  while true do
+    terminal.clear(); writeLine(terminal, 1, title)
+    for index, value in ipairs(header or {}) do writeLine(terminal, index + 1, value) end
+    local start = #(header or {}) + 3
+    for index, entry in ipairs(entries) do writeLine(terminal, start + index - 1, entry.label, index == selected) end
+    writeLine(terminal, select(2, terminal.getSize()), "Enter Select  [B] Back")
+    local event, key = os.pullEvent("key")
+    if event == "key" then
+      if key == keys.up then selected = math.max(1, selected - 1)
+      elseif key == keys.down then selected = math.min(#entries, selected + 1)
+      elseif key == keys.enter then return entries[selected].id
+      elseif Ui.isBackKey(key) then return nil, "BACK" end
+    end
+  end
 end
 
 function Ui.input(terminal, title, label, initial)

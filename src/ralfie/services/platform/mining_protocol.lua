@@ -30,6 +30,7 @@ function Protocol.statusValid(payload)
   if payload.job_type ~= nil and payload.job_type ~= "MINING" then return false end
   if payload.job_lifecycle ~= nil and type(payload.job_lifecycle) ~= "string" then return false end
   if payload.job_distance ~= nil and (type(payload.job_distance) ~= "number" or payload.job_distance < 1 or payload.job_distance % 1 ~= 0) then return false end
+  if payload.job_tunnel_size ~= nil and payload.job_tunnel_size ~= 3 and payload.job_tunnel_size ~= 5 and payload.job_tunnel_size ~= 9 then return false end
   if payload.pending_command ~= nil and payload.pending_command ~= "RETURN_HOME" and payload.pending_command ~= "UNLOAD" and payload.pending_command ~= "PAUSE" and payload.pending_command ~= "RESUME" then return false end
   return type(payload.software_version) == "string" and type(payload.protocol_version) == "number"
 end
@@ -37,7 +38,8 @@ end
 function Protocol.jobAssignValid(payload)
   return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and payload.target_id % 1 == 0 and
     type(payload.issued_by) == "number" and payload.issued_by % 1 == 0 and type(payload.job) == "table" and payload.job.type == "MINING" and
-    type(payload.job.distance) == "number" and payload.job.distance > 0 and payload.job.distance % 1 == 0
+    type(payload.job.distance) == "number" and payload.job.distance > 0 and payload.job.distance % 1 == 0 and
+    (payload.job.tunnel_size == 3 or payload.job.tunnel_size == 5 or payload.job.tunnel_size == 9)
 end
 function Protocol.jobAckValid(payload)
   return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and
@@ -46,7 +48,7 @@ function Protocol.jobAckValid(payload)
 end
 function Protocol.jobStatusValid(payload)
   return type(payload) == "table" and commandId(payload.job_id) and payload.job_type == "MINING" and type(payload.lifecycle) == "string" and
-    type(payload.distance) == "number" and payload.distance > 0 and payload.distance % 1 == 0
+    type(payload.distance) == "number" and payload.distance > 0 and payload.distance % 1 == 0 and (payload.tunnel_size == 3 or payload.tunnel_size == 5 or payload.tunnel_size == 9)
 end
 function Protocol.jobResultValid(payload)
   return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and
