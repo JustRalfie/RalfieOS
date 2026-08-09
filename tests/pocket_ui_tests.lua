@@ -16,6 +16,19 @@ local function has(lines, text)
   return false
 end
 
+local savedOs, savedKeys = _G.os, _G.keys
+_G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6 }
+local events = { { "char", "1" }, { "key", keys.backspace }, { "char", "2" }, { "key", keys.enter } }
+_G.os = { pullEvent = function() local event = table.remove(events, 1); return event[1], event[2] end }
+local inputScreen = terminal(26, 12)
+assert(Ui.input(inputScreen, "INPUT", "Value", "") == "2", "Backspace must edit input before submission")
+events = { { "key", keys.escape } }
+assert(Ui.input(inputScreen, "INPUT", "Value", "") == nil, "Escape must cancel input")
+events = { { "key", keys.escape } }
+assert(Ui.confirm(inputScreen, "CONFIRM", {}) == false, "Escape must cancel confirmation")
+assert(Ui.isBackKey(keys.b) and Ui.isBackKey(keys.backspace) and Ui.isBackKey(keys.escape))
+_G.os, _G.keys = savedOs, savedKeys
+
 local running = { id = 17, label = "Steve", online = true, status = { state = "CHASING_ORE", job_id = "job-secret-42", job_distance = 100, fuel_level = 8421, inventory_used = 6, inventory_slots = 16 } }
 assert(Ui.userState(running) == "MINING")
 assert(Ui.commandForKey(running, "p") == "PAUSE")

@@ -1,5 +1,5 @@
 return {
-  version = "0.3.2",
+  version = "0.3.3",
   api_version = 1,
   launchers = {
     { source = "launchers/ralf.lua", target = "/ralf.lua" },

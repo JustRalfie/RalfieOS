@@ -17,6 +17,12 @@ local function runScenario(options)
       return ""
     end,
   }
+  if options.wizardInputs then
+    ui.input = function(_, _, label)
+      table.insert(events, "input:" .. label)
+      return table.remove(options.wizardInputs, 1)
+    end
+  end
   local menu = {
     choose = function(_, title)
       table.insert(events, "menu:" .. title)
@@ -113,31 +119,31 @@ assert(contains(success, "menu:Mining"))
 assert(contains(success, "clear"))
 assert(contains(success, "prompt:Tunnel distance:"))
 assert(contains(success, "status:DONE:3x3 Tunnel Miner finished."))
-assert(contains(success, "prompt:Press Enter to return:"))
-assert(appearsBefore(success, "status:DONE:3x3 Tunnel Miner finished.", "prompt:Press Enter to return:"))
+assert(contains(success, "prompt:[Enter/B] Back:"))
+assert(appearsBefore(success, "status:DONE:3x3 Tunnel Miner finished.", "prompt:[Enter/B] Back:"))
 assert(count(success, "menu:Mining") == 2)
 assert(count(success, "menu:Tunnel Miner") == 1)
 
 local loadFailure = runScenario({ choices = { "mining", "tunnel_miner", "3", "back", "exit" }, loadFailure = true })
 assert(contains(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable"))
-assert(contains(loadFailure, "prompt:Press Enter to return:"))
-assert(appearsBefore(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable", "prompt:Press Enter to return:"))
+assert(contains(loadFailure, "prompt:[Enter/B] Back:"))
+assert(appearsBefore(loadFailure, "status:ERROR:Tunnel Miner failed to load: Miner module is unavailable", "prompt:[Enter/B] Back:"))
 
 local exception = runScenario({
   choices = { "mining", "tunnel_miner", "3", "back", "exit" },
   start = function() error("simulated Miner crash") end,
 })
 assert(containsText(exception, "simulated Miner crash"))
-assert(contains(exception, "prompt:Press Enter to return:"))
-assert(prefixAppearsBefore(exception, "status:ERROR:Tunnel Miner crashed:", "prompt:Press Enter to return:"))
+assert(contains(exception, "prompt:[Enter/B] Back:"))
+assert(prefixAppearsBefore(exception, "status:ERROR:Tunnel Miner crashed:", "prompt:[Enter/B] Back:"))
 
 local failure = runScenario({
   choices = { "mining", "tunnel_miner", "3", "back", "exit" },
   start = function() return Result.fail("MINER.STOPPED", "simulated Miner failure") end,
 })
 assert(contains(failure, "status:STOPPED:simulated Miner failure"))
-assert(contains(failure, "prompt:Press Enter to return:"))
-assert(appearsBefore(failure, "status:STOPPED:simulated Miner failure", "prompt:Press Enter to return:"))
+assert(contains(failure, "prompt:[Enter/B] Back:"))
+assert(appearsBefore(failure, "status:STOPPED:simulated Miner failure", "prompt:[Enter/B] Back:"))
 
 for _, size in ipairs({ 5, 9 }) do
   local moduleName = "ralfie.apps.miner.miner_" .. size .. "x" .. size
@@ -154,5 +160,9 @@ local firstRun = runScenario({ choices = { "exit" }, noProfile = true, workerEna
 assert(contains(firstRun, "profile:MINING_WORKER:true"))
 assert(contains(firstRun, "menu:RALFIE OS 0.3 - Steve"))
 assert(not contains(firstRun, "worker:start"))
+
+local setupBack = runScenario({ choices = { "exit" }, noProfile = true, wizardInputs = { "Steve", "y", nil, "n", "Main" }, start = function() return Result.ok(true) end })
+assert(contains(setupBack, "profile:UNCONFIGURED:false"), "wizard Back must return to the previous safe setup step")
+assert(count(setupBack, "input:Enable Fleet Worker? [Y/N]:") == 2)
 
 print("launcher tests passed")

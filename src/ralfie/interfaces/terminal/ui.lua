@@ -39,6 +39,25 @@ function Ui.new(options)
     return (reader or self.reader)()
   end
 
+  function ui:input(title, label, initial)
+    if not (os and os.pullEvent and keys) then return self:prompt(label) end
+    local value = initial or ""
+    while true do
+      self:clear(); self:heading(title); self:line(label); self:line("> " .. value .. "_")
+      self:line("Enter Continue  Esc Back")
+      local event, key = os.pullEvent()
+      if event == "char" then value = value .. key
+      elseif event == "key" then
+        if key == keys.enter then return value end
+        if key == keys.escape then return nil, "BACK" end
+        if key == keys.backspace then
+          if #value == 0 then return nil, "BACK" end
+          value = value:sub(1, -2)
+        end
+      end
+    end
+  end
+
   function ui:progress(label, current, total)
     local width = math.max(1, math.min(30, select(1, self.terminal.getSize()) - #label - 12))
     local ratio = total > 0 and math.max(0, math.min(1, current / total)) or 0

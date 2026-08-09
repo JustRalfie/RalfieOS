@@ -14,7 +14,7 @@ local function errorMessage(result, fallback)
 end
 
 local function waitForEnter()
-  context.ui:prompt("Press Enter to return:")
+  context.ui:prompt("[Enter/B] Back:")
 end
 
 local function showResult(label, message, isError)
@@ -48,15 +48,31 @@ if managementModule.ok and profile then
 end
 
 local function setupDevice()
-  context.ui:clear(); context.ui:heading("RALFIE OS SETUP")
-  context.ui:line("Detected: " .. deviceInfo.type)
-  context.ui:line(deviceInfo.capabilities.wireless_modem and "Wireless Modem" or "No wireless modem")
-  local name = context.ui:prompt("Device Name:")
-  if not name or name == "" then context.ui:status("INVALID", "A device name is required.", true); return false end
   local isTurtle = deviceInfo.type == "TURTLE" or deviceInfo.type == "ADVANCED_TURTLE"
-  local workerEnabled = isTurtle and context.ui:prompt("Enable Fleet Worker? [Y/N]:"):lower() == "y"
-  local auto = workerEnabled and context.ui:prompt("Auto-start Worker next boot? [Y/N]:"):lower() == "y" or false
-  local fleet = context.ui:prompt("Fleet Name [Main]:")
+  local function ask(label, initial)
+    if context.ui.input then return context.ui:input("RALFIE OS SETUP", label, initial) end
+    return context.ui:prompt(label)
+  end
+  local name, workerEnabled, auto, fleet = "", false, false, "Main"
+  local step = 1
+  local lastStep = isTurtle and 4 or 2
+  while step <= lastStep do
+    local value
+    if step == 1 then
+      value = ask("Device Name:", name)
+      if value == nil then return false end
+      if value == "" then context.ui:status("INVALID", "A device name is required.", true) else name = value; step = step + 1 end
+    elseif isTurtle and step == 2 then
+      value = ask("Enable Fleet Worker? [Y/N]:", workerEnabled and "Y" or "N")
+      if value == nil then step = step - 1 else workerEnabled = value:lower() == "y"; step = workerEnabled and step + 1 or 4 end
+    elseif isTurtle and step == 3 then
+      value = ask("Auto-start Worker next boot? [Y/N]:", auto and "Y" or "N")
+      if value == nil then step = step - 1 else auto = value:lower() == "y"; step = step + 1 end
+    else
+      value = ask("Fleet Name [Main]:", fleet)
+      if value == nil then step = isTurtle and (workerEnabled and 3 or 2) or 1 else fleet = value == "" and "Main" or value; step = step + 1 end
+    end
+  end
   if fleet == "" then fleet = "Main" end
   local role = workerEnabled and "MINING_WORKER" or (isTurtle and "UNCONFIGURED" or (deviceInfo.type == "POCKET" and "FLEET_CONTROLLER" or "GENERAL"))
   local saved = context.device_profile:save({ device_name = name, role = role, auto_start = auto, fleet_name = fleet, settings = {}, config_revision = 0 }, deviceInfo)

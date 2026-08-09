@@ -1,10 +1,48 @@
 local Ui = {}
 
+function Ui.isBackKey(key)
+  return key == keys.b or key == keys.backspace or key == keys.escape
+end
+
 local function writeLine(terminal, line, text)
   local width = select(1, terminal.getSize())
   if line > select(2, terminal.getSize()) then return end
   terminal.setCursorPos(1, line)
   terminal.write(tostring(text):sub(1, width))
+end
+
+function Ui.input(terminal, title, label, initial)
+  local value = initial or ""
+  while true do
+    terminal.clear()
+    writeLine(terminal, 1, title)
+    writeLine(terminal, 3, label)
+    writeLine(terminal, 5, "> " .. value .. "_")
+    writeLine(terminal, select(2, terminal.getSize()), "Enter Save  Esc Cancel")
+    local event, key = os.pullEvent()
+    if event == "char" then value = value .. key
+    elseif event == "key" then
+      if key == keys.enter then return value end
+      if key == keys.escape then return nil, "BACK" end
+      if key == keys.backspace then
+        if #value == 0 then return nil, "BACK" end
+        value = value:sub(1, -2)
+      end
+    end
+  end
+end
+
+function Ui.confirm(terminal, title, lines)
+  while true do
+    terminal.clear(); writeLine(terminal, 1, title)
+    for index, line in ipairs(lines or {}) do writeLine(terminal, index + 2, line) end
+    writeLine(terminal, select(2, terminal.getSize()), "[Y] Confirm  [N] Cancel")
+    local event, key = os.pullEvent("key")
+    if event == "key" then
+      if key == keys.y then return true end
+      if key == keys.n or Ui.isBackKey(key) then return false, "BACK" end
+    end
+  end
 end
 
 local function normalized(state)

@@ -85,18 +85,15 @@ end
 local function configureDevice()
   local miner = selected and fleet.miners[selected]
   if not miner or not miner.online or not miner.device_info then return end
-  term.clear(); term.setCursorPos(1, 1); term.write("DEVICE SETUP")
-  term.setCursorPos(1, 3); term.write("1 Name  2 Fleet  3 Auto")
-  term.setCursorPos(1, 5); term.write("Edit: ")
-  local choice = read()
+  local choice = Ui.input(term, "DEVICE SETUP", "1 Name  2 Fleet  3 Auto", "")
+  if choice == nil then return end
   local key = choice == "1" and "device_name" or (choice == "2" and "fleet_name" or (choice == "3" and "auto_start" or nil))
   if not key then return end
-  term.setCursorPos(1, 7); term.write(key == "auto_start" and "Auto-start [Y/N]: " or "New value: ")
-  local raw = read()
+  local raw = Ui.input(term, "DEVICE SETUP", key == "auto_start" and "Auto-start [Y/N]" or "New value", "")
+  if raw == nil then return end
   local value = key == "auto_start" and raw:lower() == "y" or raw
   if key ~= "auto_start" and value == "" then return end
-  term.setCursorPos(1, 9); term.write("Confirm [Y/N]: ")
-  if read():lower() ~= "y" then return end
+  if not Ui.confirm(term, "SAVE DEVICE SETUP?", { key .. ": " .. tostring(value) }) then return end
   local id = "config-" .. tostring(os.epoch("utc")) .. "-" .. selected
   network:send(selected, Protocol.types.DEVICE_CONFIG_SET, { request_id = id, target_id = selected, issued_by = network:identity().id,
     expected_revision = miner.device_info.config_revision, changes = { [key] = value } })
@@ -104,23 +101,12 @@ end
 local function assignJob()
   local miner = selected and fleet.miners[selected]
   if not miner or not miner.online or miner.status.state ~= "READY" then return end
-  local width = select(1, term.getSize())
-  local function line(number, text) term.setCursorPos(1, number); term.write(tostring(text):sub(1, width)) end
-  term.clear(); line(1, "NEW MINING JOB")
-  line(3, miner.label or ("Miner #" .. miner.id))
-  line(5, "Distance (whole number):")
-  line(6, "> ")
-  local distance = tonumber(read())
+  local distance = tonumber(Ui.input(term, "NEW MINING JOB", "Distance (whole number)", ""))
   if not distance or distance < 1 or distance % 1 ~= 0 then
-    line(8, "Invalid distance.")
-    line(9, "Press any key."); os.pullEvent("key")
+    Ui.confirm(term, "INVALID DISTANCE", { "Use a positive whole number." })
     return
   end
-  term.clear(); line(1, "ASSIGN MINING JOB?")
-  line(3, "Miner: " .. (miner.label or ("#" .. miner.id)))
-  line(4, "Distance: " .. distance)
-  line(6, "Confirm [Y/N]: ")
-  if read():lower() ~= "y" then return end
+  if not Ui.confirm(term, "ASSIGN MINING JOB?", { "Miner: " .. (miner.label or ("#" .. miner.id)), "Distance: " .. distance }) then return end
   local id = "job-" .. tostring(os.epoch("utc")) .. "-" .. selected
   job = { id = id, target_id = selected, state = "SENT" }
   network:send(selected, Protocol.types.JOB_ASSIGN, { job_id = id, target_id = selected, issued_by = network:identity().id, job = { type = "MINING", distance = distance } })
@@ -146,7 +132,7 @@ while true do
     end
     timer = os.startTimer(1)
   elseif event == "key" then
-    if detail and a == keys.b then
+    if detail and Ui.isBackKey(a) then
       if info then info = false else detail = false end
     elseif detail and info and a == keys.e then configureDevice()
     elseif detail and not info and a == keys.s and Ui.userState(selected and fleet.miners[selected]) == "READY" then

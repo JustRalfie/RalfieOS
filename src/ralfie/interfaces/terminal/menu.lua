@@ -13,7 +13,12 @@ function Menu.choose(ui, title, entries)
       for _, line in ipairs(entry.description) do ui:line("   " .. line) end
     end
   end
-  local selected = tonumber(ui:prompt("Select:"))
+  local raw = ui:prompt("Select ([B] Back):")
+  if tostring(raw):lower() == "b" then
+    for _, entry in ipairs(entries) do if entry.id == "back" then return "back" end end
+    return nil
+  end
+  local selected = tonumber(raw)
   if not selected or selected % 1 ~= 0 or not entries[selected] then
     ui:status("INVALID", "Choose a listed number.", true)
     return nil
