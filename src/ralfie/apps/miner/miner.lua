@@ -178,17 +178,19 @@ function Miner.start(context, options)
       completeReturn(outcome.ok, reason)
     end
     if #unloadCommands > 0 and pendingUnload then completeCommands(unloadCommands, "FAILED", (outcome.error and outcome.error.message) or "miner stopped before unload completed") end
+    if #pauseCommands > 0 and pendingPause then completeCommands(pauseCommands, "FAILED", (outcome.error and outcome.error.message) or "miner stopped before pause completed") end
     return outcome
   end
   local statusReader = MiningStatus.new({
     turtle = context.turtle, inventory = inventory, gps = context.gps,
     get_state = function() return view.status end,
-    get_job = function() return jobState and jobState.id or nil end,
+    get_job = function() return options.job_id or (jobState and jobState.id) or nil end,
+    get_job_details = options.get_job_details,
     get_pending_command = function() return pendingReturn and "RETURN_HOME" or (pendingUnload and "UNLOAD" or (pendingPause and "PAUSE" or nil)) end,
   })
   network = MiningNetwork.new({
     protocol = MiningProtocol, status = statusReader, rednet = context.rednet, peripheral = context.peripheral,
-    os = context.os, logger = context.logger, command_handler = handleCommand,
+    os = context.os, logger = context.logger, command_handler = handleCommand, job_handler = options.job_handler,
   })
   local terminal = context.ui.terminal or { getSize = function() return 51, 19 end, isColor = function() return false end, setCursorPos = function() end, write = function() end, clear = function() end }
   local dashboard = Dashboard.new({ terminal = terminal, colors = context.ui.colors })
@@ -196,6 +198,7 @@ function Miner.start(context, options)
     status = function(_, label, message, isError)
       local map = { MINE = "MINING", ORE = "CHASING ORE", FLUID = "SECURING FLUID", RETURN = "RETURNING HOME", DUMP = "UNLOADING", RESUME = "RESUMING", DONE = "COMPLETE" }
       view.status = isError and "ERROR" or (map[label] or view.status)
+      if options.on_state_change then pcall(options.on_state_change, view.status) end
       if label == "ORE" and message and message:find(" detected", 1, true) then view.ore = message:gsub(" detected", "") end
       view.fuel, view.torches, view.filler = adapter:fuelLevel(), inventory:count(torchSlot), inventory:count(fillerSlot)
       view.loot = 13 - inventory:freeSlots({ fillerSlot, torchSlot, fuelSlot })
@@ -306,7 +309,7 @@ function Miner.start(context, options)
   context.logger:info("miner.started", { distance = distance, torch_interval = torchInterval, fuel_required = fuelRequired })
   dashboard:reset(); minerUi:status("MINE", "Starting", false)
   for step = (jobState and jobState.slice or 1), distance do
-    if pendingReturn then break end
+    if pendingReturn then if options.on_return_home then pcall(options.on_return_home) end; break end
     local beforeSlice = unloadIfNeeded(step, "tunnel")
     if not beforeSlice.ok then return finishMiner(beforeSlice) end
     view.slice = step - 1; minerUi:status("MINE", "Slice " .. step .. "/" .. distance, false)
@@ -325,11 +328,11 @@ function Miner.start(context, options)
     end
     local original = navigation:face(0)
     if not original.ok then return finishMiner(original) end
-    local chased = ore:mineSliceBoundary({ movement_retries = movementRetries })
+    local chased = ore:mineSliceBoundary({ width = tunnelWidth, height = tunnelHeight, movement_retries = movementRetries })
     if not chased.ok then return finishMiner(chased) end
     local unloaded = unloadIfNeeded(step, chased.value.inventory_full and "ore" or "tunnel")
     if not unloaded.ok then return finishMiner(unloaded) end
-    if pendingReturn then break end
+    if pendingReturn then if options.on_return_home then pcall(options.on_return_home) end; break end
     if #unloadCommands > 0 and not pendingUnload then completeCommands(unloadCommands, "SUCCESS") end
     if pendingUnload then
       pendingUnload = false
@@ -342,7 +345,7 @@ function Miner.start(context, options)
       pendingPause, paused, view.status = false, true, "PAUSED"
       completeCommands(pauseCommands, "SUCCESS")
       while paused and not pendingReturn do network:wait(1) end
-      if pendingReturn then break end
+      if pendingReturn then if options.on_return_home then pcall(options.on_return_home) end; break end
       minerUi:status("MINE", "Resuming", false)
     end
     if step % torchInterval == 0 then

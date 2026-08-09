@@ -278,105 +278,57 @@ function Ore.new(options)
     return result.ok({ anchor = anchor, targets = targets })
   end
 
-  function ore:discoverSliceBoundary(options)
+  function ore:discoverTunnelBoundary(options)
     options = options or {}
     local anchor = copy(options.anchor or navigation:position())
-    local moveRetries = options.movement_retries or retries
-    local discovered, targets = {}, {}
-
-    local function addTarget(origin, direction, inspected)
+    local width, height = options.width or 3, options.height or 3
+    if width < 3 or height < 3 or width % 2 ~= 1 or height % 2 ~= 1 then return result.fail("ORE.INVALID_TUNNEL_PATTERN", "Tunnel boundary dimensions must be odd whole numbers of at least three") end
+    local half, discovered, targets = (width - 1) / 2, {}, {}
+    local function restore(failure)
+      local restored = restoreTunnel(anchor)
+      return restored.ok and failure or restored
+    end
+    local function add(origin, direction, inspected)
       if not inspected.value.present or not matches(inspected.value.data) then return end
-      local position = {
-        x = origin.x + direction.x,
-        y = origin.y + direction.y,
-        z = origin.z + direction.z,
-      }
+      local position = { x = origin.x + direction.x, y = origin.y + direction.y, z = origin.z + direction.z }
       local targetKey = key(position)
       if discovered[targetKey] then return end
       discovered[targetKey] = true
-      table.insert(targets, {
-        key = targetKey,
-        position = position,
-        origin = copy(origin),
-        direction = copyDirection(direction),
-        data = inspected.value.data,
-      })
+      table.insert(targets, { key = targetKey, position = position, origin = copy(origin), direction = copyDirection(direction), data = inspected.value.data })
     end
-
-    local function restore(failure)
-      local restored = restoreTunnel(anchor)
-      if not restored.ok then return restored end
-      return failure
-    end
-
-    local function scan(direction)
+    local function scan(y, z, direction)
+      local positioned = returnTo({ x = anchor.x, y = anchor.y + y, z = anchor.z + z })
+      if not positioned.ok then return positioned end
       local origin = copy(navigation:position())
       local inspected
-      if direction.move then
-        inspected = adapter:inspect(direction.move)
+      if direction.move then inspected = adapter:inspect(direction.move)
       else
         local faced = navigation:face(direction.heading)
         if not faced.ok then return faced end
         inspected = adapter:inspect("forward")
       end
       if not inspected.ok then return inspected end
-      addTarget(origin, direction, inspected)
+      add(origin, direction, inspected)
       return result.ok(true)
     end
-
-    local function moveWithin(direction)
-      return world:move(direction, moveRetries, false)
+    local function scanRow(direction, y, first, last)
+      for z = first, last do local scanned = scan(y, z, direction); if not scanned.ok then return scanned end end
+      return result.ok(true)
     end
-
-    local function faceAndMove(heading)
-      local faced = navigation:face(heading)
-      if not faced.ok then return faced end
-      return moveWithin("forward")
+    for y = 0, height - 1 do
+      local front = scanRow(directions[1], y, -half, half); if not front.ok then return restore(front) end
+      local left = scan(y, -half, directions[4]); if not left.ok then return restore(left) end
+      local right = scan(y, half, directions[2]); if not right.ok then return restore(right) end
     end
-
-    local inspected = scan(directions[1]) -- Front-facing center block.
-    if not inspected.ok then return restore(inspected) end
-
-    local moved = faceAndMove(3) -- Lower-left interior position.
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[4])
-    if not inspected.ok then return restore(inspected) end
-    moved = moveWithin("up")
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[4])
-    if not inspected.ok then return restore(inspected) end
-    moved = moveWithin("up")
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[4])
-    if not inspected.ok then return restore(inspected) end
-    inspected = scan(directions[5]) -- Upper-left ceiling boundary.
-    if not inspected.ok then return restore(inspected) end
-
-    moved = faceAndMove(1) -- Cross the cleared top row.
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[5]) -- Ceiling center.
-    if not inspected.ok then return restore(inspected) end
-    moved = moveWithin("forward")
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[2])
-    if not inspected.ok then return restore(inspected) end
-    inspected = scan(directions[5]) -- Upper-right ceiling boundary.
-    if not inspected.ok then return restore(inspected) end
-
-    moved = moveWithin("down")
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[2])
-    if not inspected.ok then return restore(inspected) end
-    moved = moveWithin("down")
-    if not moved.ok then return restore(moved) end
-    inspected = scan(directions[2])
-    if not inspected.ok then return restore(inspected) end
-
-    moved = faceAndMove(3) -- Return to the normal center lane.
-    if not moved.ok then return restore(moved) end
+    local ceiling = scanRow(directions[5], height - 1, -half, half)
+    if not ceiling.ok then return restore(ceiling) end
     local restored = restoreTunnel(anchor)
     if not restored.ok then return restored end
     return result.ok({ anchor = anchor, targets = targets })
+  end
+
+  function ore:discoverSliceBoundary(options)
+    return self:discoverTunnelBoundary(options)
   end
 
   function ore:chase(target, options)
@@ -569,7 +521,7 @@ function Ore.new(options)
       return result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = true, abandoned = false })
     end
 
-    local discovered = ore:discoverSliceBoundary({ anchor = anchor, movement_retries = options.movement_retries })
+    local discovered = ore:discoverTunnelBoundary({ anchor = anchor, width = options.width, height = options.height, movement_retries = options.movement_retries })
     if not discovered.ok then return discovered end
 
     local processed = options.processed or {}
@@ -593,6 +545,10 @@ function Ore.new(options)
       end
     end
     return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+  end
+
+  function ore:mineTunnelBoundary(options)
+    return self:mineSliceBoundary(options)
   end
 
   return ore

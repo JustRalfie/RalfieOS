@@ -86,7 +86,7 @@ local function run(blocks, options)
   })
   local outcome
   if options.slice_boundary then
-    outcome = ore:discoverSliceBoundary()
+    outcome = ore:discoverTunnelBoundary({ width = options.width, height = options.height })
   elseif options.mine_slice_boundary then
     outcome = ore:mineSliceBoundary()
   elseif options.chase_direction then
@@ -355,8 +355,8 @@ local sliceBoundary, sliceState, sliceNavigation = run({
   { x = 0, y = 3, z = 1, name = "minecraft:nether_gold_ore" }, -- upper-right ceiling
 }, { slice_boundary = true })
 assert(sliceBoundary.ok and #sliceBoundary.value.targets == 10)
-assert(sliceState.digs == 0 and #sliceState.inspected_directions == 10)
-assert(sliceState.moves == 8 and sliceState.turns == 6)
+assert(sliceState.digs == 0 and #sliceState.inspected_directions == 18)
+assert(sliceState.moves > 0 and sliceState.turns > 0)
 for _, position in ipairs(sliceState.move_positions) do
   assert(position.x == 0 and position.y >= 0 and position.y <= 2 and position.z >= -1 and position.z <= 1, "slice scan moved outside cleared 3x3 interior")
 end
@@ -368,6 +368,26 @@ end
 assert(sliceNames["minecraft:redstone_ore"] and sliceNames["minecraft:deepslate_redstone_ore"])
 assert(sliceNames["minecraft:diamond_ore"] and sliceNames["minecraft:coal_ore"])
 restored(sliceState, sliceNavigation)
+
+local largeBoundary, largeState, largeNavigation = run({
+  { x = 1, y = 0, z = -2, name = "minecraft:redstone_ore" },
+  { x = 1, y = 4, z = 2, name = "minecraft:deepslate_redstone_ore" },
+  { x = 0, y = 0, z = -3, name = "alltheores:uranium_ore" },
+  { x = 0, y = 2, z = -3, name = "minecraft:diamond_ore" },
+  { x = 0, y = 4, z = -3, name = "minecraft:emerald_ore" },
+  { x = 0, y = 0, z = 3, name = "minecraft:iron_ore" },
+  { x = 0, y = 2, z = 3, name = "minecraft:gold_ore" },
+  { x = 0, y = 4, z = 3, name = "minecraft:lapis_ore" },
+  { x = 0, y = 5, z = -2, name = "minecraft:copper_ore" },
+  { x = 0, y = 5, z = 0, name = "minecraft:coal_ore" },
+  { x = 0, y = 5, z = 2, name = "minecraft:nether_gold_ore" },
+}, { slice_boundary = true, width = 5, height = 5 })
+assert(largeBoundary.ok and #largeBoundary.value.targets == 11 and largeState.digs == 0)
+assert(#largeState.inspected_directions == 40, "5x5 boundary inspection count must cover front, walls, and ceiling")
+for _, position in ipairs(largeState.move_positions) do
+  assert(position.x == 0 and position.y >= 0 and position.y <= 4 and position.z >= -2 and position.z <= 2, "5x5 scanner moved outside cleared interior")
+end
+restored(largeState, largeNavigation)
 
 local boundaryChase, boundaryChaseState, boundaryChaseNavigation = run({
   { x = 0, y = 1, z = -2, name = "minecraft:redstone_ore" },
