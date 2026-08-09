@@ -147,10 +147,9 @@ function Ore.new(options)
   function ore:discoverExposed()
     local anchor = copy(navigation:position())
     local discovered, targets = {}, {}
+    local horizontal = {}
 
-    for _, direction in ipairs(directions) do
-      local inspected = inspect(direction)
-      if not inspected.ok then return inspected end
+    local function addTarget(direction, inspected)
       if inspected.value.present and matches(inspected.value.data) then
         local position = {
           x = anchor.x + direction.x,
@@ -168,6 +167,36 @@ function Ore.new(options)
           })
         end
       end
+    end
+
+    local function restoreHeading(failure)
+      local restored = navigation:face(anchor.heading)
+      if not restored.ok then return restored end
+      return failure
+    end
+
+    for offset = 0, 3 do
+      local index = ((anchor.heading + offset) % 4) + 1
+      local direction = directions[index]
+      local faced = navigation:face(direction.heading)
+      if not faced.ok then return restoreHeading(faced) end
+      local inspected = adapter:inspect("forward")
+      if not inspected.ok then return restoreHeading(inspected) end
+      horizontal[index] = inspected
+    end
+
+    local restored = navigation:face(anchor.heading)
+    if not restored.ok then return restored end
+
+    for index = 1, 4 do
+      addTarget(directions[index], horizontal[index])
+    end
+
+    for index = 5, 6 do
+      local direction = directions[index]
+      local inspected = inspect(direction)
+      if not inspected.ok then return inspected end
+      addTarget(direction, inspected)
     end
 
     if not samePosition(navigation:position(), anchor) then

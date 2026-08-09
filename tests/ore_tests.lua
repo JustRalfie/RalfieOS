@@ -156,7 +156,7 @@ restored(behindState, behindNavigation)
 
 local none, noneState, noneNavigation = run({})
 assert(none.ok and none.value.collected == 0)
-assert(noneState.turns == 8 and noneState.moves == 0 and noneState.digs == 0)
+assert(noneState.turns == 4 and noneState.moves == 0 and noneState.digs == 0)
 assert(#noneState.inspected_directions == 6, "ore-free traversal must preserve the six-direction inspection pass")
 restored(noneState, noneNavigation)
 

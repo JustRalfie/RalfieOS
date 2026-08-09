@@ -9,7 +9,7 @@ local expected = {
   right = "minecraft:diamond_ore",
   backward = "minecraft:iron_ore",
   up = "minecraft:coal_ore",
-  down = "minecraft:stone", -- Non-ore: discovery must ignore it.
+  down = "minecraft:gold_ore",
 }
 local expectedDirectionByName = {
   [expected.forward] = "forward",
@@ -17,13 +17,15 @@ local expectedDirectionByName = {
   [expected.backward] = "backward",
   [expected.left] = "left",
   [expected.up] = "up",
+  [expected.down] = "down",
 }
 local horizontal = { [0] = "forward", [1] = "right", [2] = "backward", [3] = "left" }
-local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, turns = 0, inspected_directions = {} }
+local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, turns = 0, inspected_directions = {}, inspected_world_directions = {} }
 local adapter = {
   inspect = function(_, direction)
     table.insert(state.inspected_directions, direction)
     local worldDirection = direction == "forward" and horizontal[state.heading] or direction
+    table.insert(state.inspected_world_directions, worldDirection)
     local name = expected[worldDirection]
     if name then return Result.ok({ present = true, data = { name = name } }) end
     return Result.ok({ present = false })
@@ -49,8 +51,9 @@ assert(type(ore.discoverExposed) == "function", "discoverExposed() is not implem
 local discovered = ore:discoverExposed()
 assert(discovered.ok)
 assert(discovered.value.anchor.x == 0 and discovered.value.anchor.y == 0 and discovered.value.anchor.z == 0 and discovered.value.anchor.heading == 0)
-assert(#discovered.value.targets == 5, "non-ore must be ignored and each discovered coordinate deduplicated")
+assert(#discovered.value.targets == 6, "each discovered coordinate must be returned once")
 assert(#state.inspected_directions == 6, "forward, right, backward, left, up, and down must be inspected")
+assert(table.concat(state.inspected_world_directions, ",") == "forward,right,backward,left,up,down", "discovery inspection order changed")
 local seen = {}
 local found = {}
 for _, target in ipairs(discovered.value.targets) do
@@ -64,7 +67,30 @@ for _, target in ipairs(discovered.value.targets) do
   found[target.data.name] = true
 end
 assert(found[expected.forward] and found[expected.left] and found[expected.right] and found[expected.backward])
-assert(found[expected.up] and not found[expected.down], "all horizontal, upward, and only matching targets must be discovered")
+assert(found[expected.up] and found[expected.down], "all six matching directions must be discovered")
+local expectedTargetOrder = { expected.forward, expected.right, expected.backward, expected.left, expected.up, expected.down }
+for index, name in ipairs(expectedTargetOrder) do
+  assert(discovered.value.targets[index].data.name == name, "returned target ordering changed")
+end
 assert(state.digs == 0 and state.moves == 0 and state.heading == 0)
-assert(state.turns == 8, "discovery must retain the current six-direction turn baseline")
+assert(state.turns <= 4, "discovery must batch horizontal inspections")
+
+state.x, state.y, state.z, state.heading = 0, 0, 0, 1
+state.moves, state.digs, state.turns = 0, 0, 0
+state.inspected_directions, state.inspected_world_directions = {}, {}
+local rotatedAnchor = ore:discoverExposed()
+assert(rotatedAnchor.ok and rotatedAnchor.value.anchor.heading == 1)
+assert(table.concat(state.inspected_world_directions, ",") == "right,backward,left,forward,up,down")
+assert(state.turns <= 4 and state.moves == 0 and state.digs == 0 and state.heading == 1)
+for index, name in ipairs(expectedTargetOrder) do
+  assert(rotatedAnchor.value.targets[index].data.name == name, "target ordering must not depend on anchor heading")
+end
+
+expected.down = "minecraft:stone"
+state.x, state.y, state.z, state.heading = 0, 0, 0, 0
+state.moves, state.digs, state.turns = 0, 0, 0
+state.inspected_directions, state.inspected_world_directions = {}, {}
+local nonOre = ore:discoverExposed()
+assert(nonOre.ok and #nonOre.value.targets == 5, "non-ore blocks must remain ignored")
+assert(state.digs == 0 and state.moves == 0 and state.heading == 0 and state.turns <= 4)
 print("ore discovery API tests passed")
