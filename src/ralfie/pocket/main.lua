@@ -6,7 +6,7 @@ local Ui = dofile(root .. "/pocket/ui.lua")
 
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
-local fleet, selected, detail, command, job = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, nil, nil
+local fleet, selected, detail, info, command, job = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, false, nil, nil
 local function now() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
 local function selectOnline()
   if selected and fleet:canCommand(selected) then return end
@@ -15,7 +15,9 @@ local function selectOnline()
 end
 local function redraw()
   selectOnline()
-  if detail and selected and fleet.miners[selected] then Ui.command(term, fleet.miners[selected], command and command.state) else Ui.render(term, fleet, selected) end
+  if detail and selected and fleet.miners[selected] then
+    if info then Ui.info(term, fleet.miners[selected]) else Ui.command(term, fleet.miners[selected], command and command.state) end
+  else Ui.render(term, fleet, selected) end
 end
 local function receive(sender, message)
   local time = now()
@@ -100,15 +102,22 @@ while true do
     if math.floor(time) % 30 == 0 then network:broadcast(Protocol.types.HELLO) end
     timer = os.startTimer(1)
   elseif event == "key" then
-    if detail and a == keys.b then detail = false
-    elseif detail and a == keys.s then requestDeviceInfo()
-    elseif detail and a == keys.e then configureDevice()
-    elseif detail and a == keys.j then assignJob()
-    elseif detail and (a == keys.r or a == keys.u or a == keys.p or a == keys.c) and selected and fleet:canCommand(selected) then
-      local id = tostring(os.epoch("utc")) .. "-" .. selected
-      local kind = a == keys.r and "RETURN_HOME" or (a == keys.u and "UNLOAD" or (a == keys.p and "PAUSE" or "RESUME"))
-      command = { id = id, kind = kind, target_id = selected, sent_at = now(), state = "SENT" }
-      network:send(selected, Protocol.types.COMMAND, { command_id = id, command = kind, target_id = selected, issued_by = network:identity().id })
+    if detail and a == keys.b then
+      if info then info = false else detail = false end
+    elseif detail and info and a == keys.e then configureDevice()
+    elseif detail and not info and a == keys.s and Ui.userState(selected and fleet.miners[selected]) == "READY" then
+      info = true; requestDeviceInfo()
+    elseif detail and not info and a == keys.i then
+      info = true; requestDeviceInfo()
+    elseif detail and not info and a == keys.j then assignJob()
+    elseif detail and not info and selected and fleet:canCommand(selected) then
+      local keyNames = { [keys.r] = "r", [keys.u] = "u", [keys.p] = "p", [keys.c] = "c" }
+      local kind = Ui.commandForKey(fleet.miners[selected], keyNames[a])
+      if kind then
+        local id = tostring(os.epoch("utc")) .. "-" .. selected
+        command = { id = id, kind = kind, target_id = selected, sent_at = now(), state = "SENT" }
+        network:send(selected, Protocol.types.COMMAND, { command_id = id, command = kind, target_id = selected, issued_by = network:identity().id })
+      end
     elseif not detail and a == keys.enter and selected then detail = true
     elseif not detail and (a == keys.up or a == keys.down) then
       local miners = fleet:list(); local index = 1
