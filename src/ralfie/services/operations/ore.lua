@@ -332,6 +332,50 @@ function Ore.new(options)
     return self:discoverTunnelBoundary(options)
   end
 
+  function ore:beginTunnelBoundaryDiscovery(options)
+    options = options or {}
+    local anchor = options.anchor
+    local width, height = options.width, options.height
+    if type(anchor) ~= "table" or type(anchor.x) ~= "number" or type(anchor.y) ~= "number" or type(anchor.z) ~= "number" or type(anchor.heading) ~= "number" then
+      return result.fail("ORE.INVALID_BOUNDARY_ANCHOR", "Tunnel boundary anchor is invalid")
+    end
+    if type(width) ~= "number" or type(height) ~= "number" or width < 3 or height < 3 or width % 2 ~= 1 or height % 2 ~= 1 then
+      return result.fail("ORE.INVALID_TUNNEL_PATTERN", "Tunnel boundary dimensions must be odd whole numbers of at least three")
+    end
+    local discovered, targets, observations = {}, {}, 0
+    local observer = {}
+
+    function observer:observe(observation)
+      if type(observation) ~= "table" or type(observation.origin) ~= "table" or type(observation.direction) ~= "table" then
+        return result.fail("ORE.INVALID_BOUNDARY_OBSERVATION", "Tunnel boundary observation is invalid")
+      end
+      local origin, direction = observation.origin, observation.direction
+      if type(origin.x) ~= "number" or type(origin.y) ~= "number" or type(origin.z) ~= "number" or
+        type(direction.x) ~= "number" or type(direction.y) ~= "number" or type(direction.z) ~= "number" then
+        return result.fail("ORE.INVALID_BOUNDARY_OBSERVATION", "Tunnel boundary observation coordinates are invalid")
+      end
+      observations = observations + 1
+      local inspected = observation.data
+      if type(inspected) == "table" and inspected.present ~= nil then
+        if not inspected.present then return result.ok(false) end
+        inspected = inspected.data
+      end
+      if not matches(inspected) then return result.ok(false) end
+      local position = { x = origin.x + direction.x, y = origin.y + direction.y, z = origin.z + direction.z }
+      local targetKey = key(position)
+      if discovered[targetKey] then return result.ok(false) end
+      discovered[targetKey] = true
+      table.insert(targets, { key = targetKey, position = position, origin = copy(origin), direction = copyDirection(direction), data = inspected })
+      return result.ok(true)
+    end
+
+    function observer:finish()
+      return result.ok({ anchor = copy(anchor), targets = targets, observations = observations })
+    end
+
+    return result.ok(observer)
+  end
+
   function ore:boundaryMovementEstimate(width, height)
     if type(width) ~= "number" or type(height) ~= "number" or width < 3 or height < 3 or width % 2 ~= 1 or height % 2 ~= 1 then
       return nil
