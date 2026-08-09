@@ -9,6 +9,15 @@ local vectors = {
   [2] = { x = -1, z = 0 }, [3] = { x = 0, z = -1 },
 }
 
+local chaseDirections = {
+  forward = { name = "forward", heading = 0, x = 1, y = 0, z = 0 },
+  right = { name = "right", heading = 1, x = 0, y = 0, z = 1 },
+  backward = { name = "backward", heading = 2, x = -1, y = 0, z = 0 },
+  left = { name = "left", heading = 3, x = 0, y = 0, z = -1 },
+  up = { name = "up", move = "up", x = 0, y = 1, z = 0 },
+  down = { name = "down", move = "down", x = 0, y = -1, z = 0 },
+}
+
 local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
 
 local function run(blocks, options)
@@ -70,8 +79,21 @@ local function run(blocks, options)
     adapter = adapter, navigation = navigation, world = world, inventory = inventory, result = Result, logger = logger, ui = ui,
     max_size = options.max_size or 64, movement_retries = options.movement_retries or 3,
     additional_ids = options.additional_ids, excluded_ids = options.excluded_ids,
+    should_stop = options.stop_after_digs and function() return state.digs >= options.stop_after_digs end or nil,
   })
-  local outcome = ore:mineExposed()
+  local outcome
+  if options.chase_direction then
+    local direction = chaseDirections[options.chase_direction]
+    local target = {
+      key = key(direction.x, direction.y, direction.z),
+      position = { x = direction.x, y = direction.y, z = direction.z },
+      direction = direction,
+      data = { name = options.chase_name },
+    }
+    outcome = ore:chase(target, options.chase_options)
+  else
+    outcome = ore:mineExposed()
+  end
   return outcome, state, navigation
 end
 
@@ -115,6 +137,11 @@ assert(none.ok and none.value.collected == 0)
 assert(noneState.turns == 8 and noneState.moves == 0 and noneState.digs == 0)
 assert(#noneState.inspected_directions == 6, "ore-free traversal must preserve the six-direction inspection pass")
 restored(noneState, noneNavigation)
+
+local preStopped, preStoppedState, preStoppedNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { stop_after_digs = 0 })
+assert(preStopped.ok and preStopped.value.inventory_full and preStopped.value.collected == 0)
+assert(preStoppedState.turns == 0 and preStoppedState.moves == 0 and preStoppedState.digs == 0)
+restored(preStoppedState, preStoppedNavigation)
 
 local multiple, multipleState, multipleNavigation = run({
   { x = 1, y = 0, z = 0, name = "minecraft:copper_ore" }, { x = 0, y = 0, z = 1, name = "minecraft:lapis_ore" },
@@ -201,5 +228,73 @@ assert(returnFailureState.x == 1 and returnFailureState.y == 0 and returnFailure
 local unsafeBranch, unsafeState, unsafeNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { fluid_failure = true })
 assert(unsafeBranch.ok and unsafeBranch.value.abandoned)
 restored(unsafeState, unsafeNavigation)
+
+local chasedSingle, chasedSingleState, chasedSingleNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", chase_options = { anchor = { x = 0, y = 0, z = 0, heading = 0 } },
+})
+assert(chasedSingle.ok and chasedSingle.value.collected == 1 and chasedSingleState.digs == 1)
+restored(chasedSingleState, chasedSingleNavigation)
+
+local chasedHorizontal, chasedHorizontalState, chasedHorizontalNavigation = run({
+  { x = 1, y = 0, z = 0, name = "minecraft:iron_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:iron_ore" },
+}, { chase_direction = "forward", chase_name = "minecraft:iron_ore" })
+assert(chasedHorizontal.ok and chasedHorizontal.value.collected == 2)
+restored(chasedHorizontalState, chasedHorizontalNavigation)
+
+local chasedVertical, chasedVerticalState, chasedVerticalNavigation = run({
+  { x = 0, y = 1, z = 0, name = "minecraft:gold_ore" }, { x = 0, y = 2, z = 0, name = "minecraft:gold_ore" },
+}, { chase_direction = "up", chase_name = "minecraft:gold_ore" })
+assert(chasedVertical.ok and chasedVertical.value.collected == 2)
+restored(chasedVerticalState, chasedVerticalNavigation)
+
+local chasedBranching, chasedBranchingState, chasedBranchingNavigation = run({
+  { x = 1, y = 0, z = 0, name = "minecraft:redstone_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:redstone_ore" },
+  { x = 1, y = 1, z = 0, name = "minecraft:redstone_ore" }, { x = 1, y = 0, z = 1, name = "minecraft:redstone_ore" },
+}, { chase_direction = "forward", chase_name = "minecraft:redstone_ore" })
+assert(chasedBranching.ok and chasedBranching.value.collected == 4)
+restored(chasedBranchingState, chasedBranchingNavigation)
+
+local chasedLimit, chasedLimitState, chasedLimitNavigation = run({
+  { x = 1, y = 0, z = 0, name = "minecraft:nether_gold_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:nether_gold_ore" },
+}, { chase_direction = "forward", chase_name = "minecraft:nether_gold_ore", max_size = 1 })
+assert(chasedLimit.ok and chasedLimit.value.collected == 1 and chasedLimit.value.limit_reached)
+restored(chasedLimitState, chasedLimitNavigation)
+
+local chasedFull, chasedFullState, chasedFullNavigation = run({
+  { x = 1, y = 0, z = 0, name = "minecraft:nether_quartz_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:nether_quartz_ore" },
+}, { chase_direction = "forward", chase_name = "minecraft:nether_quartz_ore", full_after_digs = 1 })
+assert(chasedFull.ok and chasedFull.value.collected == 1 and chasedFull.value.inventory_full)
+restored(chasedFullState, chasedFullNavigation)
+
+local chasedStopped, chasedStoppedState, chasedStoppedNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:coal_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:coal_ore", stop_after_digs = 0,
+})
+assert(chasedStopped.ok and chasedStopped.value.collected == 0 and chasedStopped.value.inventory_full)
+restored(chasedStoppedState, chasedStoppedNavigation)
+
+local chasedUnsafe, chasedUnsafeState, chasedUnsafeNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", fluid_failure = true,
+})
+assert(chasedUnsafe.ok and chasedUnsafe.value.abandoned)
+restored(chasedUnsafeState, chasedUnsafeNavigation)
+
+local chasedMoveFailure, chasedMoveFailureState, chasedMoveFailureNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", fail_from_move = 1,
+})
+assert(not chasedMoveFailure.ok)
+restored(chasedMoveFailureState, chasedMoveFailureNavigation)
+
+local chasedReturnFailure, chasedReturnFailureState = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", fail_from_move = 2,
+})
+assert(not chasedReturnFailure.ok and chasedReturnFailure.error.code == "ORE.RETURN_FAILED")
+assert(chasedReturnFailureState.x == 1 and chasedReturnFailureState.y == 0 and chasedReturnFailureState.z == 0)
+
+local sharedProcessed = { ["1:0:0"] = true }
+local skippedChase, skippedChaseState, skippedChaseNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", chase_options = { processed = sharedProcessed },
+})
+assert(skippedChase.ok and skippedChase.value.collected == 0 and skippedChaseState.digs == 0)
+restored(skippedChaseState, skippedChaseNavigation)
 
 print("ore tests passed")

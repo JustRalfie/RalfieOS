@@ -176,14 +176,65 @@ function Ore.new(options)
     return result.ok({ anchor = anchor, targets = targets })
   end
 
-  function ore:mineExposed()
-    local saved = copy(navigation:position())
-    local visited, stack = {}, { { position = copy(saved), next_direction = 1 } }
+  function ore:chase(target, options)
+    options = options or {}
+    local anchor = copy(options.anchor or navigation:position())
+    local processed = options.processed or {}
+    local sizeLimit = options.max_size or maxSize
+    local stop = options.should_stop or shouldStop
     local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
     local failure
 
-    while #stack > 0 and not failure and not limitReached do
-      if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
+    if type(target) ~= "table" or type(target.position) ~= "table" or type(target.direction) ~= "table" or type(target.data) ~= "table" then
+      return result.fail("ORE.INVALID_TARGET", "Ore chase target is invalid")
+    end
+
+    local stack = {}
+
+    local function enter(position, direction, data)
+      local positionKey = key(position)
+      if processed[positionKey] then return result.ok(false) end
+      if collected >= sizeLimit then
+        limitReached = true
+        return result.ok(false)
+      end
+
+      processed[positionKey] = true
+      detectedName = detectedName or data.name
+      if ui then
+        ui:status("ORE", data.name .. " detected", false)
+        ui:status("ORE", "Following vein", false)
+      end
+      if logger then logger:info("ore.detected", { ore_type = data.name, tunnel_position = anchor }) end
+      if not direction.move then
+        local faced = navigation:face(direction.heading)
+        if not faced.ok then return faced end
+      end
+      local dug = adapter:dig(direction.move or "forward")
+      if not dug.ok then return dug end
+      local entered = move(direction, true)
+      if not entered.ok then return entered end
+      collected = collected + 1
+      table.insert(stack, { position = copy(navigation:position()), next_direction = 1 })
+      return result.ok(true)
+    end
+
+    if (stop and stop()) or (inventory and inventory:isFull()) then
+      inventoryFull = true
+    elseif not processed[key(target.position)] then
+      local entered = enter(target.position, target.direction, target.data)
+      if not entered.ok then
+        if entered.error and entered.error.code and entered.error.code:sub(1, 5) == "FLUID" then
+          if ui then ui:status("ORE", "Abandoning unsafe branch", false) end
+          abandoned = true
+        else
+          failure = entered
+        end
+      end
+    end
+
+    while #stack > 0 and not failure and not limitReached and not abandoned do
+      if (stop and stop()) or (inventory and inventory:isFull()) then
         inventoryFull = true
         break
       end
@@ -201,45 +252,19 @@ function Ore.new(options)
         if not inspected.ok then
           failure = inspected
         elseif inspected.value.present and matches(inspected.value.data) then
-          local target = {
+          local position = {
             x = frame.position.x + direction.x,
             y = frame.position.y + direction.y,
             z = frame.position.z + direction.z,
           }
-          local targetKey = key(target)
-          if not visited[targetKey] then
-            if collected >= maxSize then
-              limitReached = true
-            else
-              visited[targetKey] = true
-              detectedName = detectedName or inspected.value.data.name
-              if ui then
-                ui:status("ORE", inspected.value.data.name .. " detected", false)
-                ui:status("ORE", "Following vein", false)
-              end
-              if logger then logger:info("ore.detected", { ore_type = inspected.value.data.name, tunnel_position = saved }) end
-              if not direction.move then
-                local faced = navigation:face(direction.heading)
-                if not faced.ok then
-                  failure = faced
-                end
-              end
-              local dug = failure or adapter:dig(direction.move or "forward")
-              if not dug.ok then
-                failure = dug
+          if not processed[key(position)] then
+            local entered = enter(position, direction, inspected.value.data)
+            if not entered.ok then
+              if entered.error and entered.error.code and entered.error.code:sub(1, 5) == "FLUID" then
+                if ui then ui:status("ORE", "Abandoning unsafe branch", false) end
+                abandoned = true
               else
-                local entered = move(direction, true)
-                if not entered.ok then
-                  if entered.error and entered.error.code and entered.error.code:sub(1, 5) == "FLUID" then
-                    if ui then ui:status("ORE", "Abandoning unsafe branch", false) end
-                    abandoned = true
-                    break
-                  end
-                  failure = entered
-                else
-                  collected = collected + 1
-                  table.insert(stack, { position = copy(navigation:position()), next_direction = 1 })
-                end
+                failure = entered
               end
             end
           end
@@ -247,14 +272,14 @@ function Ore.new(options)
       end
     end
 
-    if limitReached and logger then logger:warn("ore.limit_reached", { limit = maxSize, collected = collected, tunnel_position = saved }) end
+    if limitReached and logger then logger:warn("ore.limit_reached", { limit = sizeLimit, collected = collected, tunnel_position = anchor }) end
     if inventoryFull then
-      if logger then logger:warn("ore.inventory_full", { collected = collected, tunnel_position = saved }) end
+      if logger then logger:warn("ore.inventory_full", { collected = collected, tunnel_position = anchor }) end
       if ui then ui:status("ORE", "Inventory full; returning to tunnel", false) end
     end
-    if abandoned and logger then logger:warn("ore.branch_abandoned", { ore_type = detectedName, collected = collected, tunnel_position = saved }) end
+    if abandoned and logger then logger:warn("ore.branch_abandoned", { ore_type = detectedName, collected = collected, tunnel_position = anchor }) end
     if ui and collected > 0 then ui:status("ORE", "Collected " .. collected .. " blocks", false) end
-    local restored = restoreTunnel(saved)
+    local restored = restoreTunnel(anchor)
     if not restored.ok then return restored end
     if failure then
       if logger then logger:error("ore.chase_failed", { ore_type = detectedName, collected = collected, reason = failure.error.message }) end
@@ -262,6 +287,43 @@ function Ore.new(options)
     end
     if logger then logger:info("ore.completed", { ore_type = detectedName, collected = collected, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned }) end
     if ui and collected > 0 then ui:status("ORE", "Resuming", false) end
+    return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
+  end
+
+  function ore:mineExposed()
+    local anchor = copy(navigation:position())
+    if (shouldStop and shouldStop()) or (inventory and inventory:isFull()) then
+      if logger then logger:warn("ore.inventory_full", { collected = 0, tunnel_position = anchor }) end
+      if ui then ui:status("ORE", "Inventory full; returning to tunnel", false) end
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      if logger then logger:info("ore.completed", { ore_type = nil, collected = 0, limit_reached = false, inventory_full = true, abandoned = false }) end
+      return result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = true, abandoned = false })
+    end
+    local discovered = ore:discoverExposed()
+    if not discovered.ok then
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      return discovered
+    end
+
+    local processed = {}
+    local collected, detectedName, limitReached, inventoryFull, abandoned = 0, nil, false, false, false
+    for _, target in ipairs(discovered.value.targets) do
+      local chased = ore:chase(target, { anchor = anchor, processed = processed })
+      if not chased.ok then return chased end
+      collected = collected + chased.value.collected
+      detectedName = detectedName or chased.value.ore_type
+      limitReached = limitReached or chased.value.limit_reached
+      inventoryFull = inventoryFull or chased.value.inventory_full
+      abandoned = abandoned or chased.value.abandoned
+      if limitReached or inventoryFull or abandoned then break end
+    end
+    if #discovered.value.targets == 0 then
+      local restored = restoreTunnel(anchor)
+      if not restored.ok then return restored end
+      if logger then logger:info("ore.completed", { ore_type = nil, collected = 0, limit_reached = false, inventory_full = false, abandoned = false }) end
+    end
     return result.ok({ collected = collected, ore_type = detectedName, limit_reached = limitReached, inventory_full = inventoryFull, abandoned = abandoned })
   end
 
