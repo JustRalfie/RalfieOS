@@ -5,12 +5,14 @@ local function runScenario(options)
   local ui = {
     clear = function() table.insert(events, "clear") end,
     heading = function(_, text) table.insert(events, "heading:" .. text) end,
+    line = function(_, text) table.insert(events, "line:" .. text) end,
     status = function(_, label, message) table.insert(events, "status:" .. label .. ":" .. message) end,
     prompt = function(_, label)
       table.insert(events, "prompt:" .. label)
       if label == "Tunnel distance:" then return "3" end
       if options.noProfile and label == "Device Name:" then return "Steve" end
-      if options.noProfile and label == "Enable Fleet Worker? [Y/N]:" then return "n" end
+      if options.noProfile and label == "Enable Fleet Worker? [Y/N]:" then return options.workerEnabled and "y" or "n" end
+      if options.noProfile and label == "Auto-start Worker next boot? [Y/N]:" then return options.autoStart and "y" or "n" end
       if options.noProfile and label == "Fleet Name [Main]:" then return "" end
       return ""
     end,
@@ -29,6 +31,9 @@ local function runScenario(options)
         if options.loadFailure then return Result.fail("MODULE.LOAD_FAILED", "Miner module is unavailable") end
         return Result.ok({ start = options.start })
       end
+      if name == "ralfie.apps.miner.fleet_worker" then
+        return Result.ok({ start = function() table.insert(events, "worker:start"); return Result.ok(true) end })
+      end
       return Result.fail("MODULE.UNKNOWN", name)
     end,
   }
@@ -39,7 +44,13 @@ local function runScenario(options)
         roles = function() return { "MINING_WORKER", "STANDALONE_MINER", "UNCONFIGURED" } end,
       }
       return Result.ok({ ui = ui, module_loader = moduleLoader, turtle = {}, device = device, peripheral = {}, gps = {},
-        device_profile = { load = function() return Result.ok(options.noProfile and nil or { device_name = "Test", role = "STANDALONE_MINER", auto_start = false, fleet_name = "Main" }) end, save = function(_, profile) table.insert(events, "profile:" .. profile.role .. ":" .. tostring(profile.auto_start)); return Result.ok(profile) end } })
+        device_profile = {
+          load = function()
+            if options.noProfile then return Result.ok(nil) end
+            return Result.ok({ device_name = "Test", role = "STANDALONE_MINER", auto_start = false, fleet_name = "Main" })
+          end,
+          save = function(_, profile) table.insert(events, "profile:" .. profile.role .. ":" .. tostring(profile.auto_start)); return Result.ok(profile) end,
+        } })
     end,
   }
   local environment = setmetatable({
@@ -126,5 +137,10 @@ local failure = runScenario({
 assert(contains(failure, "status:STOPPED:simulated Miner failure"))
 assert(contains(failure, "prompt:Press Enter to return:"))
 assert(appearsBefore(failure, "status:STOPPED:simulated Miner failure", "prompt:Press Enter to return:"))
+
+local firstRun = runScenario({ choices = { "exit" }, noProfile = true, workerEnabled = true, autoStart = true, start = function() return Result.ok(true) end })
+assert(contains(firstRun, "profile:MINING_WORKER:true"))
+assert(contains(firstRun, "menu:RALFIE OS 0.3 - Steve"))
+assert(not contains(firstRun, "worker:start"))
 
 print("launcher tests passed")
