@@ -1,9 +1,10 @@
 local Result = dofile("src/ralfie/core/result.lua")
 local Miner = dofile("src/ralfie/apps/miner/miner.lua")
 
-local function moduleLoader()
+local function moduleLoader(overrides)
   return {
     load = function(_, name)
+      if overrides and overrides[name] then return Result.ok(overrides[name]) end
       local path = "src/" .. name:gsub("%.", "/") .. ".lua"
       local loaded, value = pcall(dofile, path)
       if not loaded then return Result.fail("TEST.LOAD", tostring(value)) end
@@ -100,7 +101,7 @@ local function mockTurtle(options)
   return turtle, state
 end
 
-local function context(turtle, events)
+local function context(turtle, events, overrides)
   events = events or { warnings = 0, logs = {} }
   local ui = {
     heading = function() end,
@@ -112,13 +113,13 @@ local function context(turtle, events)
     warn = function(_, event) table.insert(events.logs, event) end,
     debug = function() end,
   }
-  return { turtle = turtle, module_loader = moduleLoader(), ui = ui, logger = logger, configuration = { get = function(_, _, fallback) return fallback end } }
+  return { turtle = turtle, module_loader = moduleLoader(overrides), ui = ui, logger = logger, configuration = { get = function(_, _, fallback) return fallback end } }
 end
 
 local function run(options)
   local turtle, state = mockTurtle(options)
   local events = { warnings = 0, logs = {} }
-  local outcome = Miner.start(context(turtle, events), {
+  local outcome = Miner.start(context(turtle, events, options.module_overrides), {
     distance = options.distance or 1, torch_interval = options.torch_interval or 10,
     torch_slot = 16, fuel_slot = 15, safety_margin = options.safety_margin or 20,
     movement_retries = options.movement_retries or 3,
@@ -191,5 +192,21 @@ assert(retried.ok and retryState.moves > 12)
 local blocked, blockedState = run({ distance = 1, permanent_failure = true, items = { [15] = 10, [16] = 2 } })
 assert(not blocked.ok and blocked.error.code == "WORLD.MOVE_BLOCKED")
 assert(blockedState.moves == 3)
+
+local mineExposedCalls = 0
+local fakeOre = {
+  new = function()
+    return {
+      mineExposed = function()
+        mineExposedCalls = mineExposedCalls + 1
+        return Result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = false, abandoned = false })
+      end,
+    }
+  end,
+}
+local minerCompatibility = run({
+  distance = 1, items = { [15] = 10, [16] = 2 }, module_overrides = { ["ralfie.services.operations.ore"] = fakeOre },
+})
+assert(minerCompatibility.ok and mineExposedCalls == 3, "Miner must continue using ore:mineExposed() for the center, left, and right columns of each slice")
 
 print("miner tests passed")

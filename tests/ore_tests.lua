@@ -103,8 +103,30 @@ local function restored(state, navigation)
   assert(position.x == 0 and position.y == 0 and position.z == 0 and position.heading == 0)
 end
 
+local function resultShape(outcome)
+  assert(outcome.ok and type(outcome.value) == "table")
+  assert(type(outcome.value.collected) == "number")
+  assert(outcome.value.ore_type == nil or type(outcome.value.ore_type) == "string")
+  assert(type(outcome.value.limit_reached) == "boolean")
+  assert(type(outcome.value.inventory_full) == "boolean")
+  assert(type(outcome.value.abandoned) == "boolean")
+end
+
+local function eventOrder(events, expected)
+  local index = 1
+  for _, event in ipairs(events) do
+    if event == expected[index] then index = index + 1 end
+  end
+  assert(index == #expected + 1, "ore UI/log event ordering changed")
+end
+
 local single, singleState, singleNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } })
 assert(single.ok and single.value.collected == 1)
+resultShape(single)
+eventOrder(singleState.events, {
+  "ORE:minecraft:diamond_ore detected", "ORE:Following vein", "ore.detected", "ORE:Collected 1 blocks",
+  "ORE:Returning to tunnel", "ore.returned", "ore.completed", "ORE:Resuming",
+})
 restored(singleState, singleNavigation)
 
 local horizontal, horizontalState, horizontalNavigation = run({
@@ -168,6 +190,7 @@ local full, fullState, fullNavigation = run({
   { x = 1, y = 0, z = 0, name = "minecraft:nether_quartz_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:nether_quartz_ore" },
 }, { full_after_digs = 1 })
 assert(full.ok and full.value.collected == 1 and full.value.inventory_full)
+resultShape(full)
 assert(fullState.blocks[key(2, 0, 0)].name == "minecraft:nether_quartz_ore")
 restored(fullState, fullNavigation)
 
@@ -227,6 +250,7 @@ assert(returnFailureState.x == 1 and returnFailureState.y == 0 and returnFailure
 
 local unsafeBranch, unsafeState, unsafeNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, { fluid_failure = true })
 assert(unsafeBranch.ok and unsafeBranch.value.abandoned)
+resultShape(unsafeBranch)
 restored(unsafeState, unsafeNavigation)
 
 local chasedSingle, chasedSingleState, chasedSingleNavigation = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
