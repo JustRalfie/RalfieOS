@@ -21,6 +21,17 @@ local function samePosition(left, right)
   return left.x == right.x and left.y == right.y and left.z == right.z and left.heading == right.heading
 end
 
+local function copyDirection(direction)
+  return {
+    name = direction.name,
+    heading = direction.heading,
+    move = direction.move,
+    x = direction.x,
+    y = direction.y,
+    z = direction.z,
+  }
+end
+
 function Ore.new(options)
   local adapter = assert(options.adapter, "ore operation requires turtle adapter")
   local navigation = assert(options.navigation, "ore operation requires navigation")
@@ -131,6 +142,38 @@ function Ore.new(options)
     end
     if logger then logger:info("ore.returned", { position = saved }) end
     return result.ok(true)
+  end
+
+  function ore:discoverExposed()
+    local anchor = copy(navigation:position())
+    local discovered, targets = {}, {}
+
+    for _, direction in ipairs(directions) do
+      local inspected = inspect(direction)
+      if not inspected.ok then return inspected end
+      if inspected.value.present and matches(inspected.value.data) then
+        local position = {
+          x = anchor.x + direction.x,
+          y = anchor.y + direction.y,
+          z = anchor.z + direction.z,
+        }
+        local targetKey = key(position)
+        if not discovered[targetKey] then
+          discovered[targetKey] = true
+          table.insert(targets, {
+            key = targetKey,
+            position = position,
+            direction = copyDirection(direction),
+            data = inspected.value.data,
+          })
+        end
+      end
+    end
+
+    if not samePosition(navigation:position(), anchor) then
+      return result.fail("ORE.DISCOVERY_MISMATCH", "Discovery did not restore the original position and heading")
+    end
+    return result.ok({ anchor = anchor, targets = targets })
   end
 
   function ore:mineExposed()
