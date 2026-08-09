@@ -40,6 +40,7 @@ end
 local deviceInfo = context.device.detect({ turtle = context.turtle, pocket = context.pocket, terminal = context.ui.terminal, peripheral = context.peripheral, gps = context.gps })
 local loadedProfile = context.device_profile:load(deviceInfo)
 local profile = loadedProfile.ok and loadedProfile.value or nil
+local profileExistedAtBoot = profile ~= nil
 local managementModule = context.module_loader:load("ralfie.services.platform.device_management")
 if managementModule.ok and profile then
   context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
@@ -50,15 +51,15 @@ local function setupDevice()
   context.ui:clear(); context.ui:heading("RALFIE OS SETUP")
   context.ui:line("Detected: " .. deviceInfo.type)
   context.ui:line(deviceInfo.capabilities.wireless_modem and "Wireless Modem" or "No wireless modem")
-  local entries = {}
-  for _, role in ipairs(context.device.roles(deviceInfo)) do table.insert(entries, { id = role, label = role:gsub("_", " ") }) end
-  table.insert(entries, { id = "cancel", label = "Cancel" })
-  local role = menu.choose(context.ui, "Choose role", entries)
-  if not role or role == "cancel" then return false end
   local name = context.ui:prompt("Device Name:")
   if not name or name == "" then context.ui:status("INVALID", "A device name is required.", true); return false end
-  local auto = context.ui:prompt("Auto-start role? [Y/N]:"):lower() == "y"
-  local saved = context.device_profile:save({ device_name = name, role = role, auto_start = auto, fleet_name = profile and profile.fleet_name or "Main", settings = {} }, deviceInfo)
+  local isTurtle = deviceInfo.type == "TURTLE" or deviceInfo.type == "ADVANCED_TURTLE"
+  local workerEnabled = isTurtle and context.ui:prompt("Enable Fleet Worker? [Y/N]:"):lower() == "y"
+  local auto = workerEnabled and context.ui:prompt("Auto-start Worker next boot? [Y/N]:"):lower() == "y" or false
+  local fleet = context.ui:prompt("Fleet Name [Main]:")
+  if fleet == "" then fleet = "Main" end
+  local role = workerEnabled and "MINING_WORKER" or (isTurtle and "UNCONFIGURED" or (deviceInfo.type == "POCKET" and "FLEET_CONTROLLER" or "GENERAL"))
+  local saved = context.device_profile:save({ device_name = name, role = role, auto_start = auto, fleet_name = fleet, settings = {}, config_revision = 0 }, deviceInfo)
   if not saved.ok then showResult("ERROR", saved.error.message, true); return false end
   profile = saved.value
   if managementModule.ok then context.device_manager = managementModule.value.new({ profile_service = context.device_profile, profile = profile, device = context.device, device_info = deviceInfo, os = context.os,
@@ -186,7 +187,7 @@ local function updateSystem()
   if not updated or not updated.ok then context.ui:status("UPDATE", "Update failed; see message above.", true) end
 end
 
-if profile and profile.role == "MINING_WORKER" and profile.auto_start then
+if profileExistedAtBoot and profile and profile.role == "MINING_WORKER" and profile.auto_start then
   runFleetWorker()
 end
 

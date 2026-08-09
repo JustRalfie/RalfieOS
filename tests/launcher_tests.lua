@@ -9,6 +9,9 @@ local function runScenario(options)
     prompt = function(_, label)
       table.insert(events, "prompt:" .. label)
       if label == "Tunnel distance:" then return "3" end
+      if options.noProfile and label == "Device Name:" then return "Steve" end
+      if options.noProfile and label == "Enable Fleet Worker? [Y/N]:" then return "n" end
+      if options.noProfile and label == "Fleet Name [Main]:" then return "" end
       return ""
     end,
   }
@@ -36,7 +39,7 @@ local function runScenario(options)
         roles = function() return { "MINING_WORKER", "STANDALONE_MINER", "UNCONFIGURED" } end,
       }
       return Result.ok({ ui = ui, module_loader = moduleLoader, turtle = {}, device = device, peripheral = {}, gps = {},
-        device_profile = { load = function() return Result.ok({ device_name = "Test", role = "STANDALONE_MINER", auto_start = false, fleet_name = "Main" }) end, save = function(_, profile) return Result.ok(profile) end } })
+        device_profile = { load = function() return Result.ok(options.noProfile and nil or { device_name = "Test", role = "STANDALONE_MINER", auto_start = false, fleet_name = "Main" }) end, save = function(_, profile) table.insert(events, "profile:" .. profile.role .. ":" .. tostring(profile.auto_start)); return Result.ok(profile) end } })
     end,
   }
   local environment = setmetatable({

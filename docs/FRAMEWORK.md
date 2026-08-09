@@ -48,7 +48,7 @@ Run `dofile("/ralfie/update.lua")` to update an installed system from the same G
 
 ## Device Hub and profiles
 
-RalfieOS 0.3 detects Turtle/Advanced Turtle, Pocket, and normal Computer hardware, plus wireless-modem and GPS capability. Its first run creates `/ralfie-data/device_profile.lua`; updates preserve this profile. A profile contains `device_name`, compatible `role`, `auto_start`, `fleet_name`, and optional role settings. Corrupt or incompatible profiles are ignored and the setup wizard is shown again.
+RalfieOS 0.3 detects Turtle/Advanced Turtle, Pocket, and normal Computer hardware, plus wireless-modem and GPS capability. Its first run creates `/ralfie-data/device_profile.lua`; updates preserve this profile. A profile contains `device_name`, compatible `role`, `auto_start`, `fleet_name`, and optional role settings. Corrupt or incompatible profiles are ignored and the setup wizard is shown again. First-run Worker auto-start is saved for the next normal boot; setup always returns to a usable hub first.
 
 Turtles can be `MINING_WORKER`, `STANDALONE_MINER`, or `UNCONFIGURED`. Pockets can be `FLEET_CONTROLLER` or `GENERAL`; normal computers offer `FLEET_CONTROLLER` or `GENERAL`. The hub offers only compatible roles. Device Setup changes local profile values; no remote profile-sync protocol exists.
 
