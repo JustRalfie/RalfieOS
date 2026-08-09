@@ -9,7 +9,7 @@ function Jobs.new(options)
   local clock = options.clock or function() return os.time() end
   local jobs = { active_path = root .. "/active.lua" }
   local function valid(state)
-    return type(state) == "table" and (state.job_type == "tunnel_miner" or state.job_type == "tunnel_miner_5x5") and type(state.id) == "string" and type(state.position) == "table" and type(state.slice) == "number" and type(state.distance) == "number"
+    return type(state) == "table" and (state.job_type == "tunnel_miner" or state.job_type == "tunnel_miner_5x5" or state.job_type == "tunnel_miner_9x9") and type(state.id) == "string" and type(state.position) == "table" and type(state.slice) == "number" and type(state.distance) == "number"
   end
   function jobs:load()
     local recovered, err = fsx.recoverAtomic(fs, self.active_path)

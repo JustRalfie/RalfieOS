@@ -389,6 +389,24 @@ for _, position in ipairs(largeState.move_positions) do
 end
 restored(largeState, largeNavigation)
 
+local hugeBoundary, hugeState, hugeNavigation = run({
+  { x = 1, y = 0, z = -4, name = "minecraft:redstone_ore" },
+  { x = 1, y = 8, z = 4, name = "minecraft:deepslate_redstone_ore" },
+  { x = 0, y = 0, z = -5, name = "alltheores:uranium_ore" },
+  { x = 0, y = 8, z = -5, name = "minecraft:diamond_ore" },
+  { x = 0, y = 0, z = 5, name = "minecraft:iron_ore" },
+  { x = 0, y = 8, z = 5, name = "minecraft:emerald_ore" },
+  { x = 0, y = 9, z = -4, name = "minecraft:lapis_ore" },
+  { x = 0, y = 9, z = 0, name = "minecraft:coal_ore" },
+  { x = 0, y = 9, z = 4, name = "minecraft:gold_ore" },
+}, { slice_boundary = true, width = 9, height = 9 })
+assert(hugeBoundary.ok and #hugeBoundary.value.targets == 9 and hugeState.digs == 0)
+assert(#hugeState.inspected_directions == 108, "9x9 scanner must inspect front, wall, and ceiling boundary positions")
+for _, position in ipairs(hugeState.move_positions) do
+  assert(position.x == 0 and position.y >= 0 and position.y <= 8 and position.z >= -4 and position.z <= 4, "9x9 scanner moved outside cleared interior")
+end
+restored(hugeState, hugeNavigation)
+
 local boundaryChase, boundaryChaseState, boundaryChaseNavigation = run({
   { x = 0, y = 1, z = -2, name = "minecraft:redstone_ore" },
 }, { mine_slice_boundary = true })

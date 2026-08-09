@@ -26,5 +26,12 @@ for _, position in ipairs(state.moves) do
 end
 assert(highest == 4 and left == -2 and right == 2, "5x5 pattern must traverse every column height and side offset")
 assert(pattern:movementEstimate(5, 5) > pattern:movementEstimate(3, 3))
+state.x, state.y, state.z, state.heading, state.moves = 0, 0, 0, 0, {}
+local large = pattern:clearSlice(9, 9)
+assert(large.ok and state.x == 0 and state.y == 0 and state.z == 0 and state.heading == 0)
+local highest9, left9, right9 = 0, 0, 0
+for _, position in ipairs(state.moves) do highest9 = math.max(highest9, position.y); left9, right9 = math.min(left9, position.z), math.max(right9, position.z) end
+assert(highest9 == 8 and left9 == -4 and right9 == 4, "9x9 pattern must traverse all nine columns and heights")
+assert(pattern:movementEstimate(9, 9) > pattern:movementEstimate(5, 5))
 assert(not pattern:clearSlice(4, 5).ok)
 print("tunnel pattern tests passed")
