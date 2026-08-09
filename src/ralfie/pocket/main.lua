@@ -6,6 +6,7 @@ local Network = dofile(root .. "/pocket/network.lua")
 local Ui = dofile(root .. "/pocket/ui.lua")
 local manifest = dofile(root .. "/manifest.lua")
 
+local function run()
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
 local fleet, selected, screen, detailSelection, settingsSelection, controllerSelection, command, job, updateBatch = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, "fleet", 1, 1, 1, nil, nil, nil
@@ -114,7 +115,7 @@ local function configureDevice(choice)
 end
 local function assignJob()
   local miner = selected and fleet.miners[selected]
-  if not miner or not miner.online or miner.status.state ~= "READY" then return end
+  if not miner or not miner.online or (miner.status or {}).state ~= "READY" then return end
   while true do
     local size = tonumber(Ui.choose(term, "NEW JOB", {
       { id = "3", label = "3x3" }, { id = "5", label = "5x5" }, { id = "9", label = "9x9" }, { id = "back", label = "Back" },
@@ -181,8 +182,11 @@ while true do
     elseif screen == "detail" and (a == keys.up or a == keys.down) then
       local count = #Ui.deviceActions(selected and fleet.miners[selected]); detailSelection = math.max(1, math.min(count, detailSelection + (a == keys.up and -1 or 1)))
     elseif screen == "detail" and a == keys.enter then
-      local action = Ui.deviceActions(fleet.miners[selected])[detailSelection]
-      if action.id == "back" then screen = "fleet"
+      local actions = Ui.deviceActions(fleet.miners[selected])
+      detailSelection = math.max(1, math.min(#actions, detailSelection or 1))
+      local action = actions[detailSelection]
+      if not action then screen = "fleet"
+      elseif action.id == "back" then screen = "fleet"
       elseif action.id == "details" then screen = "details"; requestDeviceInfo()
       elseif action.id == "settings" then screen = "settings"; settingsSelection = 1; requestDeviceInfo()
       elseif action.id == "job" then assignJob()
@@ -208,3 +212,11 @@ while true do
   end
   redraw()
 end
+end
+
+local ran, result = xpcall(run, function(err) return tostring(err) end)
+if not ran then
+  Ui.error(term, "Fleet Command", result)
+  return false
+end
+return result

@@ -17,7 +17,7 @@ local function has(lines, text)
 end
 
 local savedOs, savedKeys = _G.os, _G.keys
-_G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6, up = 7, down = 8 }
+_G.keys = { enter = 1, escape = 2, backspace = 3, b = 4, n = 5, y = 6, d = 7, up = 8, down = 9 }
 local events = { { "char", "B" }, { "char", "1" }, { "key", keys.backspace }, { "char", "2" }, { "key", keys.enter } }
 _G.os = { pullEvent = function() local event = table.remove(events, 1); return event[1], event[2] end }
 local inputScreen = terminal(26, 12)
@@ -32,6 +32,9 @@ assert(chosen == "5", "Pocket New Job tunnel picker must support arrow selection
 assert(has(inputScreen.lines(), "Tunnel Size"), "tunnel picker must identify the selected job parameter")
 events = { { "key", keys.b } }
 assert(Ui.choose(inputScreen, "NEW JOB", { { id = "3", label = "3x3" } }) == nil, "Pocket New Job tunnel picker must provide Back")
+events = { { "key", keys.d }, { "key", keys.b }, { "key", keys.b } }
+assert(Ui.error(inputScreen, "Fleet Command", "A very long runtime error that must remain readable on a narrow Pocket terminal.") == false)
+assert(has(inputScreen.lines(), "RALFIEOS ERROR") and has(inputScreen.lines(), "Fleet Command"), "runtime failures must render in a dedicated Pocket-safe error screen")
 assert(Ui.isBackKey(keys.b) and Ui.isBackKey(keys.backspace) and not Ui.isBackKey(keys.escape))
 _G.os, _G.keys = savedOs, savedKeys
 
@@ -48,6 +51,14 @@ assert(has(screen.lines(), "Pause"))
 assert(has(screen.lines(), "Recall"))
 assert(not has(screen.lines(), "job-secret-42"))
 assert(not has(screen.lines(), "Resume"))
+
+local fuelScreen = terminal(26, 12)
+Ui.command(fuelScreen, { id = 1, online = true, status = { state = "READY", inventory_used = 0, inventory_slots = 16 } })
+assert(has(fuelScreen.lines(), "Fuel      ?"), "missing fuel must not be displayed as zero")
+Ui.command(fuelScreen, { id = 1, online = true, status = { state = "READY", fuel_level = 0, inventory_used = 0, inventory_slots = 16 } })
+assert(has(fuelScreen.lines(), "Fuel      0"), "real zero fuel must remain visible")
+Ui.command(fuelScreen, { id = 1, online = true, status = { state = "READY", fuel_level = "unlimited", inventory_used = 0, inventory_slots = 16 } })
+assert(has(fuelScreen.lines(), "Fuel      Unlimited"), "unlimited fuel must be labelled clearly")
 
 local paused = { id = 17, online = true, status = { state = "PAUSED", fuel_level = 1, inventory_used = 0, inventory_slots = 16 } }
 assert(Ui.commandForKey(paused, "c") == "RESUME")
@@ -112,6 +123,6 @@ Ui.render(screen, fleet, 17)
 assert(has(screen.lines(), "v0.3.6"), "wide fleet rows must expose the installed worker version")
 screen = terminal(40, 12)
 Ui.controllerMenu(screen, 1)
-assert(has(screen.lines(), "v0.3.8") and has(screen.lines(), "Back"))
+assert(has(screen.lines(), "v0.3.9") and has(screen.lines(), "Back"))
 
 print("pocket UI tests passed")

@@ -1,7 +1,13 @@
 local Ui = {}
-Ui.VERSION = "0.3.8"
+Ui.VERSION = "0.3.9"
 
 function Ui.isBackKey(key) return key == keys.b or key == keys.backspace end
+
+function Ui.fuelText(value)
+  if value == "unlimited" then return "Unlimited" end
+  if type(value) == "number" then return tostring(value) end
+  return "?"
+end
 
 local function writeLine(terminal, line, text, selected)
   local width, height = terminal.getSize()
@@ -86,7 +92,7 @@ function Ui.command(terminal, miner, selected, commandState)
   local line = 4
   if status.job_tunnel_size then writeLine(terminal, line, "Tunnel    " .. tostring(status.job_tunnel_size) .. "x" .. tostring(status.job_tunnel_size)); line = line + 1 end
   if status.job_distance then writeLine(terminal, line, "Distance  " .. tostring(status.job_distance)); line = line + 1 end
-  writeLine(terminal, line, "Fuel      " .. tostring(status.fuel_level or "?")); line = line + 1
+  writeLine(terminal, line, "Fuel      " .. Ui.fuelText(status.fuel_level)); line = line + 1
   writeLine(terminal, line, "Inventory " .. tostring(status.inventory_used or "?") .. "/" .. tostring(status.inventory_slots or 16)); line = line + 2
   if state == "ERROR" then writeLine(terminal, line, status.reason or status.error or "Needs attention."); line = line + 1 end
   for index, action in ipairs(Ui.deviceActions(miner)) do writeLine(terminal, line, action.label, index == selected); line = line + 1 end
@@ -197,6 +203,47 @@ function Ui.confirm(terminal, title, lines)
     writeLine(terminal, select(2, terminal.getSize()), "[Y] Confirm  [B] Back")
     local event, key = os.pullEvent("key")
     if event == "key" then if key == keys.y then return true elseif key == keys.n or Ui.isBackKey(key) or key == keys.escape then return false, "BACK" end end
+  end
+end
+
+local function wrapped(text, width)
+  local lines, line = {}, ""
+  width = math.max(1, width)
+  for word in tostring(text):gmatch("%S+") do
+    if #word > width then
+      if #line > 0 then table.insert(lines, line); line = "" end
+      while #word > width do table.insert(lines, word:sub(1, width)); word = word:sub(width + 1) end
+    end
+    if #line == 0 then line = word
+    elseif #line + 1 + #word <= width then line = line .. " " .. word
+    else table.insert(lines, line); line = word end
+  end
+  if #line > 0 then table.insert(lines, line) end
+  return lines
+end
+
+function Ui.error(terminal, source, message)
+  local detail = false
+  while true do
+    terminal.clear()
+    local width, height = terminal.getSize()
+    writeLine(terminal, 1, detail and "RALFIEOS ERROR DETAILS" or "RALFIEOS ERROR")
+    writeLine(terminal, 2, source)
+    local lines = wrapped(message, math.max(1, width - 2))
+    local limit = detail and height - 1 or math.min(height - 4, 5)
+    for index = 1, math.min(#lines, limit) do writeLine(terminal, index + 3, lines[index]) end
+    if detail then
+      writeLine(terminal, height, "[B] Back")
+    else
+      writeLine(terminal, height - 1, "> Back")
+      writeLine(terminal, height, "[Enter/B] Back  [D] Details")
+    end
+    local event, key = os.pullEvent("key")
+    if event == "key" then
+      if detail and Ui.isBackKey(key) then detail = false
+      elseif not detail and (Ui.isBackKey(key) or key == keys.enter) then return false
+      elseif not detail and key == keys.d then detail = true end
+    end
   end
 end
 
