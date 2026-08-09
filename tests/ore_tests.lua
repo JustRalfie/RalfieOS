@@ -18,11 +18,11 @@ local chaseDirections = {
   down = { name = "down", move = "down", x = 0, y = -1, z = 0 },
 }
 
-local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
+local function key(x, y, z) return math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z) end
 
 local function run(blocks, options)
   options = options or {}
-  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {}, excursions = {} }
+  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, inspected_positions = {}, blocks = {}, events = {}, excursions = {} }
   for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
@@ -34,6 +34,7 @@ local function run(blocks, options)
   local function inspect(direction)
     table.insert(state.inspected_directions, direction)
     local x, y, z = target(direction)
+    table.insert(state.inspected_positions, { x = x, y = y, z = z, direction = direction })
     local data = state.blocks[key(x, y, z)]
     if data then return true, data end
     return false
@@ -406,6 +407,64 @@ for _, position in ipairs(hugeState.move_positions) do
   assert(position.x == 0 and position.y >= 0 and position.y <= 8 and position.z >= -4 and position.z <= 4, "9x9 scanner moved outside cleared interior")
 end
 restored(hugeState, hugeNavigation)
+
+local boundaryNames = { "minecraft:redstone_ore", "minecraft:deepslate_redstone_ore", "alltheores:uranium_ore", "minecraft:diamond_ore" }
+local boundaryBaselines = {
+  [3] = { inspections = 18, moves = 32, turns = 36 },
+  [5] = { inspections = 40, moves = 96, turns = 76 },
+  [9] = { inspections = 108, moves = 320, turns = 204 },
+}
+local function completeBoundary(size)
+  local half, blocks, expected, index = (size - 1) / 2, {}, {}, 1
+  local function add(x, y, z)
+    local name = boundaryNames[index]; index = (index % #boundaryNames) + 1
+    table.insert(blocks, { x = x, y = y, z = z, name = name })
+    table.insert(expected, key(x, y, z))
+  end
+  for y = 0, size - 1 do
+    for z = -half, half do add(1, y, z) end
+    add(0, y, -half - 1)
+    add(0, y, half + 1)
+  end
+  for z = -half, half do add(0, size, z) end
+  return blocks, expected
+end
+
+local function targetKeys(outcome)
+  local keys, seen = {}, {}
+  for _, target in ipairs(outcome.value.targets) do
+    assert(not seen[target.key], "boundary discovery returned a duplicate target")
+    seen[target.key] = true
+    table.insert(keys, target.key)
+  end
+  return keys
+end
+
+for _, size in ipairs({ 3, 5, 9 }) do
+  local blocks, expected = completeBoundary(size)
+  local expectedCount = (size * size) + (size * 3)
+  assert(#expected == expectedCount, "boundary fixture must cover front, both walls, and ceiling")
+  local baseline, baselineState, baselineNavigation = run({}, { slice_boundary = true, width = size, height = size })
+  assert(baseline.ok and baselineState.digs == 0)
+  assert(#baselineState.inspected_directions == boundaryBaselines[size].inspections, "boundary inspection baseline changed for " .. size .. "x" .. size)
+  assert(baselineState.moves == boundaryBaselines[size].moves, "boundary movement baseline changed for " .. size .. "x" .. size)
+  assert(baselineState.turns == boundaryBaselines[size].turns, "boundary turn baseline changed for " .. size .. "x" .. size)
+  restored(baselineState, baselineNavigation)
+
+  local first, firstState, firstNavigation = run(blocks, { slice_boundary = true, width = size, height = size })
+  local second, secondState, secondNavigation = run(blocks, { slice_boundary = true, width = size, height = size })
+  assert(first.ok and second.ok and firstState.digs == 0 and secondState.digs == 0)
+  local firstKeys, secondKeys = targetKeys(first), targetKeys(second)
+  assert(#firstKeys == expectedCount and #secondKeys == expectedCount, "boundary target set changed for " .. size .. "x" .. size)
+  for index, targetKey in ipairs(expected) do
+    assert(firstKeys[index] == targetKey, "boundary coordinate coverage or ordering changed for " .. size .. "x" .. size)
+    assert(secondKeys[index] == targetKey, "boundary target ordering must be deterministic")
+    assert(first.value.targets[index].data.name == blocks[index].name, "boundary matcher regression for " .. blocks[index].name)
+  end
+  restored(firstState, firstNavigation)
+  restored(secondState, secondNavigation)
+  print("boundary baseline " .. size .. "x" .. size .. ": inspections=" .. #baselineState.inspected_directions .. ", moves=" .. baselineState.moves .. ", turns=" .. baselineState.turns .. ", digs=" .. baselineState.digs)
+end
 
 local boundaryChase, boundaryChaseState, boundaryChaseNavigation = run({
   { x = 0, y = 1, z = -2, name = "minecraft:redstone_ore" },
