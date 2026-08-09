@@ -64,8 +64,10 @@ function Miner.start(context, options)
   local jobState = options.recovery
   if context.filesystem and context.fsx and context.serialization then
     job = Jobs.new({ filesystem = context.filesystem, fsx = context.fsx, serialization = context.serialization, result = resultModule, clock = context.clock })
-    if not jobState then jobState = { job_type = "tunnel_miner", id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot } } end
+    if not jobState then jobState = { job_type = "tunnel_miner", id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", placed_torches = {}, configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot } } end
   end
+  local placedTorches = (jobState and jobState.placed_torches) or {}
+  if jobState then jobState.placed_torches = placedTorches end
   local network
   local function checkpoint(position)
     if job then
@@ -202,7 +204,10 @@ function Miner.start(context, options)
     adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger, ui = minerUi, filler_slot = fillerSlot,
     allowed_fillers = options.allowed_fillers or config:get("miner.allowed_fillers", nil), desired_reserve = options.filler_reserve or config:get("miner.filler_reserve", 64),
   })
-  local world = World.new({ adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid })
+  local world = World.new({
+    adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid,
+    torch_positions = placedTorches, torch_slot = torchSlot, on_torch_changed = function() checkpoint(navigation:position()) end,
+  })
   local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
@@ -254,7 +259,8 @@ function Miner.start(context, options)
   end
 
   local function placeTorch()
-    local originalHeading = navigation:position().heading
+    local original = navigation:position()
+    local originalHeading = original.heading
     local faced = navigation:face((originalHeading + 2) % 4)
     if not faced.ok then return faced end
     local placed = inventory:withSlot(torchSlot, function() return adapter:place("forward") end)
@@ -265,7 +271,10 @@ function Miner.start(context, options)
       minerUi:status("WARN", "Torch could not be placed; continuing.", false)
       return resultModule.ok(false)
     end
-
+    local vector = ({ [0] = { x = 1, z = 0 }, [1] = { x = 0, z = 1 }, [2] = { x = -1, z = 0 }, [3] = { x = 0, z = -1 } })[originalHeading]
+    local torchPosition = { x = original.x - vector.x, y = original.y, z = original.z - vector.z }
+    placedTorches[torchPosition.x .. ":" .. torchPosition.y .. ":" .. torchPosition.z] = true
+    checkpoint(navigation:position())
     context.logger:info("miner.torch_placed", { position = navigation:position() })
     return placed
   end
