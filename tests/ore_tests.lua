@@ -13,7 +13,7 @@ local function key(x, y, z) return x .. ":" .. y .. ":" .. z end
 
 local function run(blocks, options)
   options = options or {}
-  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, blocks = {}, events = {} }
+  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, digs = 0, turns = 0, inspected_directions = {}, blocks = {}, events = {} }
   for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
@@ -23,6 +23,7 @@ local function run(blocks, options)
     return state.x + vector.x, state.y, state.z + vector.z
   end
   local function inspect(direction)
+    table.insert(state.inspected_directions, direction)
     local x, y, z = target(direction)
     local data = state.blocks[key(x, y, z)]
     if data then return true, data end
@@ -47,8 +48,8 @@ local function run(blocks, options)
 
   local turtle = {
     forward = function() return move("forward") end, up = function() return move("up") end, down = function() return move("down") end,
-    turnLeft = function() state.heading = (state.heading + 3) % 4; return true end,
-    turnRight = function() state.heading = (state.heading + 1) % 4; return true end,
+    turnLeft = function() state.heading = (state.heading + 3) % 4; state.turns = state.turns + 1; return true end,
+    turnRight = function() state.heading = (state.heading + 1) % 4; state.turns = state.turns + 1; return true end,
     inspect = function() return inspect("forward") end, inspectUp = function() return inspect("up") end, inspectDown = function() return inspect("down") end,
     dig = function() return dig("forward") end, digUp = function() return dig("up") end, digDown = function() return dig("down") end,
   }
