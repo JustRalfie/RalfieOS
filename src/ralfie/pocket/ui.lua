@@ -1,5 +1,5 @@
 local Ui = {}
-Ui.VERSION = "0.3.9"
+Ui.VERSION = "0.3.10"
 
 function Ui.isBackKey(key) return key == keys.b or key == keys.backspace end
 

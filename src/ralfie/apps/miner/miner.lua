@@ -59,8 +59,9 @@ function Miner.start(context, options)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
   local excludedOreIds = options.excluded_ore_ids or config:get("miner.excluded_ore_ids", {})
   local inventoryFreeSlotMargin = options.inventory_free_slot_margin or config:get("miner.inventory_free_slot_margin", 1)
-  local tunnelWidth, tunnelHeight = options.width or 3, options.height or 3
-  local jobType = options.job_type or "tunnel_miner"
+  local recoveredConfiguration = type(options.recovery) == "table" and type(options.recovery.configuration) == "table" and options.recovery.configuration or {}
+  local tunnelWidth, tunnelHeight = options.width or recoveredConfiguration.width or 3, options.height or recoveredConfiguration.height or 3
+  local jobType = options.job_type or (options.recovery and options.recovery.job_type) or "tunnel_miner"
   if torchSlot == fuelSlot or torchSlot == fillerSlot or fuelSlot == fillerSlot or torchInterval < 1 then
     return resultModule.fail("MINER.INVALID_CONFIGURATION", "Filler, torch, and fuel slots must differ and torch interval must be positive")
   end
@@ -72,7 +73,7 @@ function Miner.start(context, options)
   local jobState = options.recovery
   if context.filesystem and context.fsx and context.serialization then
     job = Jobs.new({ filesystem = context.filesystem, fsx = context.fsx, serialization = context.serialization, result = resultModule, clock = context.clock })
-    if not jobState then jobState = { job_type = jobType, id = tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", placed_torches = {}, configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot, width = tunnelWidth, height = tunnelHeight } } end
+    if not jobState then jobState = { job_type = jobType, id = options.job_id or tostring((context.clock or os.time)()), distance = distance, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, operation = "mining", placed_torches = {}, configuration = { torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot, width = tunnelWidth, height = tunnelHeight } } end
   end
   local placedTorches = (jobState and jobState.placed_torches) or {}
   if jobState then jobState.placed_torches = placedTorches end
@@ -100,7 +101,7 @@ function Miner.start(context, options)
   if not torchReservation.ok then return torchReservation end
   if not fuelReservation.ok then return fuelReservation end
   if not fillerReservation.ok then return fillerReservation end
-  local view = { distance = distance, slice = 0, capacity = 13, status = "MINING", ores = 0, veins = 0, unloads = 0 }
+  local view = { distance = distance, slice = 0, capacity = 13, status = "MINING", ores = 0, veins = 0, unloads = 0, pattern = tunnelWidth .. "x" .. tunnelHeight }
   local dashboard
   local commandHistory, commandOrder, pendingReturn, pendingUnload, pendingPause, paused, returnCommands, unloadCommands, pauseCommands = {}, {}, nil, false, false, false, {}, {}, {}
   local finalizeCommand, completeCommands

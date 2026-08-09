@@ -148,7 +148,7 @@ local function run(options)
   local outcome = Miner.start(context(turtle, events, options.module_overrides), {
     distance = options.distance or 1, torch_interval = options.torch_interval or 10,
     torch_slot = 16, fuel_slot = 15, safety_margin = options.safety_margin or 20,
-    movement_retries = options.movement_retries or 3, width = options.width, height = options.height, job_type = options.job_type,
+    movement_retries = options.movement_retries or 3, width = options.width, height = options.height, job_type = options.job_type, recovery = options.recovery,
   })
   return outcome, state, events
 end
@@ -270,6 +270,26 @@ for _, size in ipairs({ 3, 5, 9 }) do
 end
 assert(#observerStarts == 3 and chaseTargetCalls == 3 and oldScannerCalls == 0, "Miner must use the opportunistic observer pipeline")
 assert(#observerCalls == 18 + 40 + 108, "Miner must receive complete 3x3/5x5/9x9 boundary observations")
+
+local recoveredPattern
+local recoveryOre = {
+  new = function()
+    return {
+      beginTunnelBoundaryDiscovery = function(_, options)
+        recoveredPattern = { width = options.width, height = options.height }
+        return Result.ok({ observe = function() return Result.ok(true) end, finish = function() return Result.ok({ anchor = options.anchor, targets = {} }) end })
+      end,
+      chaseTargets = function() return Result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = false, abandoned = false }) end,
+      boundaryMovementEstimate = function() return 32 end,
+    }
+  end,
+}
+local recovered = run({
+  distance = 1, fuel = 10000, items = { [15] = 10, [16] = 2 }, module_overrides = { ["ralfie.services.operations.ore"] = recoveryOre },
+  recovery = { job_type = "tunnel_miner_9x9", distance = 1, slice = 1, position = { x = 0, y = 0, z = 0, heading = 0 }, placed_torches = {}, configuration = { width = 9, height = 9 } },
+})
+assert(recovered.ok, recovered.error and recovered.error.message)
+assert(recoveredPattern.width == 9 and recoveredPattern.height == 9, "recovery must preserve the saved 9x9 tunnel geometry")
 
 for _, case in ipairs({
   { size = 3, block = { x = 2, y = 0, z = 0, name = "minecraft:redstone_ore" } },

@@ -123,6 +123,6 @@ Ui.render(screen, fleet, 17)
 assert(has(screen.lines(), "v0.3.6"), "wide fleet rows must expose the installed worker version")
 screen = terminal(40, 12)
 Ui.controllerMenu(screen, 1)
-assert(has(screen.lines(), "v0.3.9") and has(screen.lines(), "Back"))
+assert(has(screen.lines(), "v0.3.10") and has(screen.lines(), "Back"))
 
 print("pocket UI tests passed")

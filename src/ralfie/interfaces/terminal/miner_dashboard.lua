@@ -18,6 +18,7 @@ function Dashboard.new(options)
       "RalfieOS Miner", "Status: " .. (state.status or "MINING"),
       "Progress: [" .. string.rep("#", filled) .. string.rep("-", bar - filled) .. "] " .. percent .. "%",
       "Slice: " .. slice .. " / " .. distance,
+      "Pattern: " .. (state.pattern or "3x3"),
       "Fuel: " .. tostring(state.fuel or 0) .. " (Inventory: " .. tostring(state.inventory_fuel or 0) .. (state.inventory_fuel_label and " " .. state.inventory_fuel_label or "") .. ")",
       "Loot: " .. (state.loot or 0) .. " / " .. (state.capacity or 0),
       "Torches: " .. (state.torches or 0) .. "  Filler: " .. (state.filler or 0),
