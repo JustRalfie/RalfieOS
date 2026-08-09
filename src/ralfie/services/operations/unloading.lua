@@ -27,6 +27,7 @@ function Unloading.new(options)
   local beforeDump = options.before_dump
   local torchSlot = assert(options.torch_slot, "unloading requires torch slot")
   local fuelSlot = assert(options.fuel_slot, "unloading requires fuel slot")
+  local fillerSlot = options.filler_slot
   local unload = { trips = 0 }
 
   assert(type(freeMargin) == "number" and freeMargin >= 0 and freeMargin % 1 == 0, "unloading free slot margin must be a whole number")
@@ -79,7 +80,7 @@ function Unloading.new(options)
     if ui then ui:status("INVENTORY", "Nearly full", false) end
     if logger then logger:warn("unload.triggered", { position = saved.position, heading = saved.position.heading, slice = saved.slice, mode = saved.mode }) end
     local distance = math.abs(saved.position.x) + math.abs(saved.position.y) + math.abs(saved.position.z)
-    local fuelReady = fuel:ensure((distance * 2) + safetyMargin, torchSlot, fuelSlot)
+    local fuelReady = fuel:ensure((distance * 2) + safetyMargin, torchSlot, fuelSlot, fillerSlot)
     if not fuelReady.ok then
       if logger then logger:error("unload.fuel_insufficient", { position = saved.position, reason = fuelReady.error.message }) end
       return fuelReady

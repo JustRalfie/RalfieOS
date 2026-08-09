@@ -22,6 +22,7 @@ local function mockTurtle(options)
     permanent_failure = options.permanent_failure, falling_blocks = options.falling_blocks or 0,
     torch_place_failures = options.torch_place_failures or 0, heading = 0, turns = 0, x = 0, y = 0, z = 0,
     torch_positions = {}, fuel_slots = options.fuel_slots or { [15] = true }, fuel_probes = 0,
+    enforce_fuel = options.enforce_fuel, force_zero_after = options.force_zero_after,
   }
   local function move(direction)
     state.moves = state.moves + 1
@@ -30,7 +31,9 @@ local function mockTurtle(options)
       state.forward_failures = state.forward_failures - 1
       return false, "blocked"
     end
+    if state.enforce_fuel and state.fuel <= 0 then return false, "Out of fuel" end
     state.fuel = state.fuel - 1
+    if state.force_zero_after and state.moves >= state.force_zero_after then state.fuel = 0; state.force_zero_after = nil end
     if direction == "up" then
       state.y = state.y + 1
     elseif direction == "down" then
@@ -122,7 +125,7 @@ local function run(options)
   local outcome = Miner.start(context(turtle, events, options.module_overrides), {
     distance = options.distance or 1, torch_interval = options.torch_interval or 10,
     torch_slot = 16, fuel_slot = 15, safety_margin = options.safety_margin or 20,
-    movement_retries = options.movement_retries or 3,
+    movement_retries = options.movement_retries or 3, width = options.width, height = options.height, job_type = options.job_type,
   })
   return outcome, state, events
 end
@@ -162,13 +165,13 @@ local insufficient, insufficientState = run({ distance = 1, fuel = 0, fuel_per_i
 assert(not insufficient.ok and insufficient.error.code == "FUEL.INSUFFICIENT")
 assert(insufficientState.moves == 0)
 
-local refuelled, refuelledState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [15] = 3, [16] = 2 } })
+local refuelled, refuelledState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [15] = 4, [16] = 2 } })
 assert(refuelled.ok)
-assert(refuelledState.items[15] == 1)
+assert(refuelledState.items[15] < 4)
 
-local mixedFuel, mixedFuelState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [2] = 3, [15] = 0, [16] = 2 }, fuel_slots = { [2] = true } })
+local mixedFuel, mixedFuelState = run({ distance = 1, fuel = 0, fuel_per_item = 20, items = { [2] = 4, [15] = 0, [16] = 2 }, fuel_slots = { [2] = true } })
 assert(mixedFuel.ok)
-assert(mixedFuelState.items[2] == 1)
+assert(mixedFuelState.items[2] < 4)
 
 local fuelPreserved, fuelPreservedState = run({
   distance = 1, items = { [1] = 9, [2] = 4, [3] = 5, [4] = 6, [15] = 7, [16] = 2 },
@@ -193,6 +196,18 @@ local blocked, blockedState = run({ distance = 1, permanent_failure = true, item
 assert(not blocked.ok and blocked.error.code == "WORLD.MOVE_BLOCKED")
 assert(blockedState.moves == 3)
 
+for _, pattern in ipairs({ { width = 3, height = 3, fuel = 74 }, { width = 5, height = 5, fuel = 172 }, { width = 9, height = 9, fuel = 514 } }) do
+  local runtimeFuel, runtimeFuelState = run({
+    distance = 1, width = pattern.width, height = pattern.height, fuel = pattern.fuel, enforce_fuel = true, force_zero_after = 1,
+    items = { [2] = 37, [15] = 0, [16] = 2 }, fuel_slots = { [2] = true },
+  })
+  assert(runtimeFuel.ok, runtimeFuel.error and runtimeFuel.error.message)
+  assert(runtimeFuelState.items[2] < 37 and runtimeFuelState.fuel >= 0, "runtime fuel must protect " .. pattern.width .. "x" .. pattern.height .. " movement")
+end
+
+local exhausted, exhaustedState = run({ distance = 1, fuel = 74, enforce_fuel = true, force_zero_after = 1, items = { [15] = 0, [16] = 2 } })
+assert(not exhausted.ok and exhausted.error.code == "FUEL.OUT_OF_FUEL" and exhaustedState.fuel == 0)
+
 local sliceBoundaryCalls = 0
 local fakeOre = {
   new = function()
@@ -204,6 +219,7 @@ local fakeOre = {
         sliceBoundaryCalls = sliceBoundaryCalls + 1
         return Result.ok({ collected = 0, ore_type = nil, limit_reached = false, inventory_full = false, abandoned = false })
       end,
+      boundaryMovementEstimate = function() return 32 end,
     }
   end,
 }

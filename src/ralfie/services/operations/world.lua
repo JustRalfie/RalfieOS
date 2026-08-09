@@ -6,6 +6,8 @@ function World.new(options)
   local result = assert(options.result, "world requires result")
   local logger = options.logger
   local fluid = options.fluid
+  local fuel = options.fuel
+  local runtimeFuel = options.runtime_fuel
   local pause = options.pause or function() end
   local torchPositions = options.torch_positions or {}
   local torchSlot = options.torch_slot
@@ -68,6 +70,10 @@ function World.new(options)
   function world:move(direction, retries, clearPath, skipTorchPath)
     retries = retries or 3
     if clearPath == nil then clearPath = true end
+    if fuel then
+      local ready = fuel:ensureRuntime(runtimeFuel)
+      if not ready.ok then return ready end
+    end
     local target = destination(direction)
     local targetKey = key(target)
     if not skipTorchPath and torchPositions[targetKey] then

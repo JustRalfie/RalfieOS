@@ -30,7 +30,7 @@ local function build(options)
     isFluid = function(_, data) return data and data.name == "minecraft:lava" end,
     secure = function() state.present = false; state.secured = true; return Result.ok(true) end,
   } or nil
-  return World.new({ adapter = adapter, navigation = navigation, result = Result, fluid = fluid, pause = function() state.pauses = state.pauses + 1 end }), state
+  return World.new({ adapter = adapter, navigation = navigation, result = Result, fluid = fluid, fuel = options.fuel, runtime_fuel = options.runtime_fuel, pause = function() state.pauses = state.pauses + 1 end }), state
 end
 
 local air, airState = build()
@@ -47,6 +47,14 @@ assert(lava:move("forward").ok and lavaState.secured and lavaState.digs == 0 and
 
 local known, knownState = build()
 assert(known:move("forward", nil, false).ok and knownState.inspections == 0 and knownState.x == 1)
+
+local refuelCalls = 0
+local runtimeFuel, runtimeFuelState = build({ fuel = { ensureRuntime = function(_, options) refuelCalls = refuelCalls + 1; assert(options.minimum == 1); return Result.ok(80) end }, runtime_fuel = { minimum = 1 } })
+assert(runtimeFuel:move("forward").ok and runtimeFuelState.x == 1 and refuelCalls == 1, "all World movement must pass through runtime fuel")
+
+local outOfFuel, outOfFuelState = build({ fuel = { ensureRuntime = function() return Result.fail("FUEL.OUT_OF_FUEL", "No usable fuel is available for movement") end } })
+local unavailable = outOfFuel:move("forward", 3)
+assert(not unavailable.ok and unavailable.error.code == "FUEL.OUT_OF_FUEL" and outOfFuelState.moves == 0, "out-of-fuel must stop before retrying impossible movement")
 
 local torchPath, torchState = build({ present = true, data = { name = "minecraft:torch" } })
 torchPath = World.new({

@@ -199,6 +199,7 @@ function Ore.new(options)
     end
     local returned = returnTo(saved)
     if not returned.ok then
+      if returned.error and returned.error.code == "FUEL.OUT_OF_FUEL" then return returned end
       local reason = breadcrumbFailureResult and breadcrumbFailure(saved, breadcrumbs or {}, nil, returned) or returned.error.message
       if logger then logger:error("ore.return_failed", { position = navigation:position(), reason = reason }) end
       return result.fail("ORE.RETURN_FAILED", "Unable to return safely to the tunnel: " .. reason, { context = returned.error.context })
@@ -329,6 +330,14 @@ function Ore.new(options)
 
   function ore:discoverSliceBoundary(options)
     return self:discoverTunnelBoundary(options)
+  end
+
+  function ore:boundaryMovementEstimate(width, height)
+    if type(width) ~= "number" or type(height) ~= "number" or width < 3 or height < 3 or width % 2 ~= 1 or height % 2 ~= 1 then
+      return nil
+    end
+    local half = (width - 1) / 2
+    return (8 * half * height) + (4 * half) + (2 * width) - 2
   end
 
   function ore:chase(target, options)

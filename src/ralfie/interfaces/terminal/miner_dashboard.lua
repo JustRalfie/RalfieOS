@@ -18,13 +18,14 @@ function Dashboard.new(options)
       "RalfieOS Miner", "Status: " .. (state.status or "MINING"),
       "Progress: [" .. string.rep("#", filled) .. string.rep("-", bar - filled) .. "] " .. percent .. "%",
       "Slice: " .. slice .. " / " .. distance,
-      "Fuel: " .. tostring(state.fuel or 0) .. "  Loot: " .. (state.loot or 0) .. " / " .. (state.capacity or 0),
+      "Fuel: " .. tostring(state.fuel or 0) .. " (Inventory: " .. tostring(state.inventory_fuel or 0) .. (state.inventory_fuel_label and " " .. state.inventory_fuel_label or "") .. ")",
+      "Loot: " .. (state.loot or 0) .. " / " .. (state.capacity or 0),
       "Torches: " .. (state.torches or 0) .. "  Filler: " .. (state.filler or 0),
       "Ores: " .. (state.ores or 0) .. "  Veins: " .. (state.veins or 0) .. "  Unloads: " .. (state.unloads or 0),
     }
     if state.ore then table.insert(output, "Ore: " .. state.ore) end
     if state.status == "COMPLETE" then table.insert(output, "Tunnel Complete") end
-    if state.status == "ERROR" and state.error then table.insert(output, "Error: " .. state.error) end
+    if (state.status == "ERROR" or state.status == "OUT_OF_FUEL") and state.error then table.insert(output, "Error: " .. state.error) end
     while #output < height do table.insert(output, "") end
     return output, width, height
   end

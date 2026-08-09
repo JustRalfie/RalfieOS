@@ -1,5 +1,5 @@
 local tests = {
-  "framework_smoke.lua", "fluid_tests.lua", "launcher_tests.lua", "menu_tests.lua", "miner_dashboard_tests.lua", "miner_tests.lua",
+  "framework_smoke.lua", "fluid_tests.lua", "fuel_tests.lua", "launcher_tests.lua", "menu_tests.lua", "miner_dashboard_tests.lua", "miner_tests.lua",
   "hub_ui_tests.lua",
   "terminal_ui_tests.lua",
   "device_profile_tests.lua",

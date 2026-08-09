@@ -53,6 +53,7 @@ function Miner.start(context, options)
   local fillerSlot = options.filler_slot or config:get("miner.filler_slot", 14)
   local torchInterval = options.torch_interval or config:get("miner.torch_interval", 10)
   local safetyMargin = options.safety_margin or config:get("miner.safety_margin", 20)
+  local runtimeFuelReserve = options.runtime_fuel_reserve or config:get("miner.runtime_fuel_reserve", 20)
   local movementRetries = options.movement_retries or config:get("miner.movement_retries", 3)
   local maxVeinSize = options.max_vein_size or config:get("miner.max_vein_size", 64)
   local additionalOreIds = options.additional_ore_ids or config:get("miner.additional_ore_ids", {})
@@ -100,6 +101,7 @@ function Miner.start(context, options)
   if not fuelReservation.ok then return fuelReservation end
   if not fillerReservation.ok then return fillerReservation end
   local view = { distance = distance, slice = 0, capacity = 13, status = "MINING", ores = 0, veins = 0, unloads = 0 }
+  local dashboard
   local commandHistory, commandOrder, pendingReturn, pendingUnload, pendingPause, paused, returnCommands, unloadCommands, pauseCommands = {}, {}, nil, false, false, false, {}, {}, {}
   local finalizeCommand, completeCommands
   local function remember(commandId, record)
@@ -173,6 +175,12 @@ function Miner.start(context, options)
     completeCommands(returnCommands, success and "SUCCESS" or "FAILED", reason)
   end
   local function finishMiner(outcome)
+    if not outcome.ok then
+      view.status = outcome.error and outcome.error.code == "FUEL.OUT_OF_FUEL" and "OUT_OF_FUEL" or "ERROR"
+      view.error = outcome.error and outcome.error.message or "Miner stopped unexpectedly"
+      dashboard:render(view)
+      if network then pcall(network.tick, network) end
+    end
     if #returnCommands > 0 then
       local reason = outcome.ok and nil or (outcome.error and outcome.error.message) or "miner stopped before return completed"
       completeReturn(outcome.ok, reason)
@@ -193,14 +201,16 @@ function Miner.start(context, options)
     os = context.os, logger = context.logger, command_handler = handleCommand, job_handler = options.job_handler, device_handler = options.device_handler, update_handler = options.update_handler, label_reader = options.label_reader,
   })
   local terminal = context.ui.terminal or { getSize = function() return 51, 19 end, isColor = function() return false end, setCursorPos = function() end, write = function() end, clear = function() end }
-  local dashboard = Dashboard.new({ terminal = terminal, colors = context.ui.colors })
+  dashboard = Dashboard.new({ terminal = terminal, colors = context.ui.colors })
+  local updateFuelDiagnostics
   local minerUi = {
     status = function(_, label, message, isError)
       local map = { MINE = "MINING", ORE = "CHASING ORE", FLUID = "SECURING FLUID", RETURN = "RETURNING HOME", DUMP = "UNLOADING", RESUME = "RESUMING", DONE = "COMPLETE" }
       view.status = isError and "ERROR" or (map[label] or view.status)
       if options.on_state_change then pcall(options.on_state_change, view.status) end
       if label == "ORE" and message and message:find(" detected", 1, true) then view.ore = message:gsub(" detected", "") end
-      view.fuel, view.torches, view.filler = adapter:fuelLevel(), inventory:count(torchSlot), inventory:count(fillerSlot)
+      updateFuelDiagnostics()
+      view.torches, view.filler = inventory:count(torchSlot), inventory:count(fillerSlot)
       view.loot = 13 - inventory:freeSlots({ fillerSlot, torchSlot, fuelSlot })
       dashboard:render(view)
       pcall(network.tick, network)
@@ -214,17 +224,25 @@ function Miner.start(context, options)
     adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger, ui = minerUi, filler_slot = fillerSlot,
     allowed_fillers = options.allowed_fillers or config:get("miner.allowed_fillers", nil), desired_reserve = options.filler_reserve or config:get("miner.filler_reserve", 64),
   })
+  local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
+  updateFuelDiagnostics = function()
+    local reserve = fuel:inventoryFuel({ fuel_slot = fuelSlot, protected_slots = { torchSlot, fillerSlot } })
+    view.fuel = adapter:fuelLevel()
+    view.inventory_fuel = reserve.ok and reserve.value.count or 0
+    view.inventory_fuel_items = reserve.ok and reserve.value.items or {}
+    view.inventory_fuel_label = reserve.ok and reserve.value.label or nil
+  end
   local world = World.new({
-    adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid,
+    adapter = adapter, navigation = navigation, result = resultModule, logger = context.logger, pause = options.pause, fluid = fluid, fuel = fuel,
+    runtime_fuel = { minimum = 1, reserve = runtimeFuelReserve, fuel_slot = fuelSlot, protected_slots = { torchSlot, fillerSlot } },
     torch_positions = placedTorches, torch_slot = torchSlot, on_torch_changed = function() checkpoint(navigation:position()) end,
   })
   local tunnelPattern = TunnelPattern.new({ navigation = navigation, world = world, result = resultModule, movement_retries = movementRetries })
-  local fuel = Fuel.new({ adapter = adapter, inventory = inventory, result = resultModule, logger = context.logger })
   local storage = Storage.new({ adapter = adapter, inventory = inventory, navigation = navigation, result = resultModule, logger = context.logger })
   local unloader = Unloading.new({
     navigation = navigation, world = world, storage = storage, inventory = inventory, fuel = fuel, result = resultModule,
     ui = minerUi, logger = context.logger, movement_retries = movementRetries, fuel_safety_margin = safetyMargin,
-    reserved_slots = { fillerSlot, torchSlot, fuelSlot }, torch_slot = torchSlot, fuel_slot = fuelSlot, free_slot_margin = inventoryFreeSlotMargin,
+    reserved_slots = { fillerSlot, torchSlot, fuelSlot }, torch_slot = torchSlot, fuel_slot = fuelSlot, filler_slot = fillerSlot, free_slot_margin = inventoryFreeSlotMargin,
     before_dump = function() return fluid:replenish() end,
   })
   local ore = Ore.new({
@@ -246,10 +264,11 @@ function Miner.start(context, options)
       context = { required = torchesNeeded, available = torchCount },
     }))
   end
-  local perSliceFuel = tunnelWidth == 3 and 12 or (tunnelPattern:movementEstimate(tunnelWidth, tunnelHeight) + 2)
-  local fuelRequired = (distance * perSliceFuel) + safetyMargin
+  local boundaryFuel = ore:boundaryMovementEstimate(tunnelWidth, tunnelHeight) or 0
+  local perSliceFuel = tunnelPattern:movementEstimate(tunnelWidth, tunnelHeight) + boundaryFuel + 1
+  local fuelRequired = (distance * (perSliceFuel + 1)) + safetyMargin
   context.ui:status("CHECK", "Fuel required: " .. fuelRequired, false)
-  local fuelReady = fuel:ensure(fuelRequired, torchSlot, fuelSlot)
+  local fuelReady = fuel:ensure(fuelRequired, torchSlot, fuelSlot, fillerSlot)
   if not fuelReady.ok then return finishMiner(fuelReady) end
   local refilled = fluid:replenish()
   if not refilled.ok then return finishMiner(refilled) end

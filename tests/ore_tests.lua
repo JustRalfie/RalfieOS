@@ -22,7 +22,7 @@ local function key(x, y, z) return math.floor(x) .. ":" .. math.floor(y) .. ":" 
 
 local function run(blocks, options)
   options = options or {}
-  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, inspected_positions = {}, blocks = {}, events = {}, excursions = {} }
+  local state = { x = 0, y = 0, z = 0, heading = 0, moves = 0, move_positions = {}, digs = 0, turns = 0, inspected_directions = {}, inspected_positions = {}, blocks = {}, events = {}, excursions = {}, fuel = options.runtime_fuel_start, fuel_items = options.runtime_fuel_items or 0, runtime_refuels = 0 }
   for _, block in ipairs(blocks) do state.blocks[key(block.x, block.y, block.z)] = { name = block.name, tags = block.tags } end
 
   local function target(direction)
@@ -45,6 +45,10 @@ local function run(blocks, options)
     if options.fail_moves and options.fail_moves[state.moves] then return false, "blocked" end
     local x, y, z = target(direction)
     if state.blocks[key(x, y, z)] then return false, "blocked" end
+    if state.fuel ~= nil then
+      if state.fuel <= 0 then return false, "Out of fuel" end
+      state.fuel = state.fuel - 1
+    end
     state.x, state.y, state.z = x, y, z
     table.insert(state.move_positions, { x = x, y = y, z = z })
     return true
@@ -67,7 +71,20 @@ local function run(blocks, options)
   }
   local adapter = TurtleAdapter.new({ turtle = turtle, result = Result })
   local navigation = Navigation.new({ adapter = adapter, result = Result })
-  local world = World.new({ adapter = adapter, navigation = navigation, result = Result })
+  local runtimeFuel
+  if options.runtime_fuel then
+    runtimeFuel = {
+      ensureRuntime = function()
+        if state.fuel == nil or state.fuel >= 1 then return Result.ok(state.fuel) end
+        if state.fuel_items <= 0 then return Result.fail("FUEL.OUT_OF_FUEL", "No usable fuel is available for movement") end
+        state.fuel_items = state.fuel_items - 1
+        state.fuel = state.fuel + (options.runtime_fuel_per_item or 20)
+        state.runtime_refuels = state.runtime_refuels + 1
+        return Result.ok(state.fuel)
+      end,
+    }
+  end
+  local world = World.new({ adapter = adapter, navigation = navigation, result = Result, fuel = runtimeFuel })
   if options.fluid_failure then
     world.move = function() return Result.fail("FLUID.UNSAFE", "lava cannot be sealed") end
   end
@@ -136,6 +153,20 @@ eventOrder(singleState.events, {
   "ORE:Returning to tunnel", "ore.returned", "ore.completed", "ORE:Resuming",
 })
 restored(singleState, singleNavigation)
+
+local fuelRecovery, fuelRecoveryState, fuelRecoveryNavigation = run({
+  { x = 1, y = 0, z = 0, name = "alltheores:deepslate_uranium_ore" },
+}, { chase_direction = "forward", chase_name = "alltheores:deepslate_uranium_ore", runtime_fuel = true, runtime_fuel_start = 1, runtime_fuel_items = 37 })
+assert(fuelRecovery.ok and fuelRecovery.value.collected == 1, "ore return must refuel rather than strand with usable fuel")
+assert(fuelRecoveryState.runtime_refuels == 1 and fuelRecoveryState.fuel_items == 36)
+assert(fuelRecoveryState.fuel > 0)
+restored(fuelRecoveryState, fuelRecoveryNavigation)
+
+local noFuelRecovery, noFuelState = run({ { x = 1, y = 0, z = 0, name = "minecraft:diamond_ore" } }, {
+  chase_direction = "forward", chase_name = "minecraft:diamond_ore", runtime_fuel = true, runtime_fuel_start = 1,
+})
+assert(not noFuelRecovery.ok and noFuelRecovery.error.code == "FUEL.OUT_OF_FUEL", "ore return must retain the specific out-of-fuel reason")
+assert(noFuelState.runtime_refuels == 0)
 
 local horizontal, horizontalState, horizontalNavigation = run({
   { x = 1, y = 0, z = 0, name = "minecraft:iron_ore" }, { x = 2, y = 0, z = 0, name = "minecraft:iron_ore" },
