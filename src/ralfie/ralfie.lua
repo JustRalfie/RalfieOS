@@ -14,6 +14,7 @@ local function errorMessage(result, fallback)
 end
 
 local function waitForEnter()
+  if context.ui.waitBack then return context.ui:waitBack() end
   context.ui:prompt("[Enter/B] Back:")
 end
 

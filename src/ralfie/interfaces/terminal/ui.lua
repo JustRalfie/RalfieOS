@@ -58,6 +58,15 @@ function Ui.new(options)
     end
   end
 
+  function ui:waitBack()
+    self:line("[Enter/B] Back")
+    if not (os and os.pullEvent and keys) then return self:prompt("") end
+    while true do
+      local event, key = os.pullEvent("key")
+      if event == "key" and (key == keys.enter or key == keys.b or key == keys.backspace or key == keys.escape) then return true end
+    end
+  end
+
   function ui:progress(label, current, total)
     local width = math.max(1, math.min(30, select(1, self.terminal.getSize()) - #label - 12))
     local ratio = total > 0 and math.max(0, math.min(1, current / total)) or 0
