@@ -23,3 +23,19 @@ If the Pocket loses contact after an ACK, it shows `RESULT UNKNOWN`, not a guess
 `UNLOAD` uses the same command lifecycle but is distinct from `RETURN_HOME`: at the next completed slice boundary it invokes the existing `Unloading:run` operation, which returns home, dumps, restores the saved mining position/heading, and resumes work. Success means that whole operation completed, even if the inventory was already empty. `RETURN_HOME` takes precedence: it cancels queued UNLOAD commands, and a later UNLOAD while return is pending/active receives `BUSY`.
 
 `PAUSE` is accepted during active work and completes only at the completed slice boundary. The miner then reports `PAUSED`, preserves its current checkpointed position and slice state, and waits with timed Rednet receives so heartbeats, status requests, duplicate replay, RETURN_HOME, and RESUME remain responsive without busy polling. `RESUME` is accepted only from `PAUSED` and returns the miner to normal slice progression. RETURN_HOME cancels a queued PAUSE and can recall a paused turtle; UNLOAD while paused is `BUSY`. A PAUSE received during unload waits until that operation has resumed safely.
+
+## Fleet Worker and mining jobs
+
+Fleet Worker is an explicit alternative to the standalone Tunnel Miner. Start it from `RalfieOS` → `Mining` → `Fleet Worker`. It remains in `READY` without moving, using timed Rednet waits for discovery, status requests, pings, heartbeats, and job assignments. A wireless modem is required for this mode; the standalone miner remains unchanged and does not require a Pocket Computer.
+
+The protocol adds `JOB_ASSIGN`, `JOB_ACK`, `JOB_STATUS`, and `JOB_RESULT`. The first and only supported job is `MINING` with a positive whole-number `distance`:
+
+```lua
+{ job_id = "job-123", target_id = 17, issued_by = 5, job = { type = "MINING", distance = 100 } }
+```
+
+`JOB_ACK ACCEPTED` assigns responsibility, not completion. A worker accepts only while `READY`; malformed distances receive `INVALID`, another job type receives `REJECTED`, and active or error workers receive `BUSY`. The worker calls the existing `Miner.start` implementation with that same `distance`; it does not implement movement, ore handling, unloading, or return logic itself.
+
+An active job reports its ID, type, distance, and lifecycle through regular `STATUS` and direct `JOB_STATUS` transitions. Terminal `JOB_RESULT` is exactly one of `SUCCESS`, `FAILED`, or `CANCELLED`. Normal completion returns the worker to `READY`. A managed miner failure reports `FAILED` and leaves the worker in `ERROR`, rather than claiming it can safely accept another job. RETURN_HOME cancels the active job at the miner's existing safe boundary, then completes or fails independently as a command; a successful final return returns the worker to `READY`.
+
+PAUSE, RESUME, and UNLOAD continue to operate on the same active job; they do not create or complete it. A job ID is idempotent for the current worker process: the newest 20 IDs retain their ACK and terminal result for replay, but rebooting the turtle clears that in-memory history. Multiple Pocket Computers remain unarbitrated; a second job assignment while one is active is `BUSY`.

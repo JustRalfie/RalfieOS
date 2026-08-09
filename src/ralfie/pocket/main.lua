@@ -6,7 +6,7 @@ local Ui = dofile(root .. "/pocket/ui.lua")
 
 local network = Network.new({ protocol = Protocol, rednet = rednet, peripheral = peripheral, os = os })
 if not network:open() then print("A wireless modem is required."); return false end
-local fleet, selected, detail, command = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, nil
+local fleet, selected, detail, command, job = Fleet.new({ offline_timeout = 45, protocol = Protocol }), nil, false, nil, nil
 local function now() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
 local function selectOnline()
   if selected and fleet:canCommand(selected) then return end
@@ -20,6 +20,9 @@ end
 local function receive(sender, message)
   local time = now()
   if message.type == Protocol.types.HELLO_ACK or message.type == Protocol.types.STATUS or message.type == Protocol.types.PONG then fleet:record(message.sender, message.payload, time) end
+  if message.type == Protocol.types.JOB_STATUS and fleet.miners[message.sender.id] then
+    local status = fleet.miners[message.sender.id].status or {}; status.job_id, status.job_type, status.job_lifecycle, status.job_distance = message.payload.job_id, message.payload.job_type, message.payload.lifecycle, message.payload.distance
+  end
   if command and message.sender.id == command.target_id and command.state == "RESULT UNKNOWN" and fleet:canCommand(command.target_id) then
     network:send(command.target_id, Protocol.types.COMMAND, { command_id = command.id, command = command.kind, target_id = command.target_id, issued_by = network:identity().id })
     command.state = "IN_PROGRESS"
@@ -28,6 +31,34 @@ local function receive(sender, message)
     if message.type == Protocol.types.COMMAND_ACK then command.state = message.payload.status == "ACCEPTED" and "IN_PROGRESS" or message.payload.status
     elseif message.type == Protocol.types.COMMAND_RESULT then command.state = message.payload.status .. (message.payload.reason and (": " .. message.payload.reason) or "") end
   end
+  if job and message.sender.id == job.target_id and message.payload.job_id == job.id then
+    if message.type == Protocol.types.JOB_ACK then job.state = message.payload.status == "ACCEPTED" and "IN_PROGRESS" or message.payload.status
+    elseif message.type == Protocol.types.JOB_RESULT then job.state = message.payload.status .. (message.payload.reason and (": " .. message.payload.reason) or "") end
+  end
+end
+local function assignJob()
+  local miner = selected and fleet.miners[selected]
+  if not miner or not miner.online or miner.status.state ~= "READY" then return end
+  local width = select(1, term.getSize())
+  local function line(number, text) term.setCursorPos(1, number); term.write(tostring(text):sub(1, width)) end
+  term.clear(); line(1, "NEW MINING JOB")
+  line(3, miner.label or ("Miner #" .. miner.id))
+  line(5, "Distance (whole number):")
+  line(6, "> ")
+  local distance = tonumber(read())
+  if not distance or distance < 1 or distance % 1 ~= 0 then
+    line(8, "Invalid distance.")
+    line(9, "Press any key."); os.pullEvent("key")
+    return
+  end
+  term.clear(); line(1, "ASSIGN MINING JOB?")
+  line(3, "Miner: " .. (miner.label or ("#" .. miner.id)))
+  line(4, "Distance: " .. distance)
+  line(6, "Confirm [Y/N]: ")
+  if read():lower() ~= "y" then return end
+  local id = "job-" .. tostring(os.epoch("utc")) .. "-" .. selected
+  job = { id = id, target_id = selected, state = "SENT" }
+  network:send(selected, Protocol.types.JOB_ASSIGN, { job_id = id, target_id = selected, issued_by = network:identity().id, job = { type = "MINING", distance = distance } })
 end
 network:broadcast(Protocol.types.HELLO)
 local timer = os.startTimer(1)
@@ -45,6 +76,7 @@ while true do
     timer = os.startTimer(1)
   elseif event == "key" then
     if detail and a == keys.b then detail = false
+    elseif detail and a == keys.j then assignJob()
     elseif detail and (a == keys.r or a == keys.u or a == keys.p or a == keys.c) and selected and fleet:canCommand(selected) then
       local id = tostring(os.epoch("utc")) .. "-" .. selected
       local kind = a == keys.r and "RETURN_HOME" or (a == keys.u and "UNLOAD" or (a == keys.p and "PAUSE" or "RESUME"))

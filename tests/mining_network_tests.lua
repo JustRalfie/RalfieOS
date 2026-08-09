@@ -21,6 +21,13 @@ assert(Protocol.valid(pauseMessage))
 local resumeMessage = assert(Protocol.message(Protocol.types.COMMAND, { id = 42 }, { command_id = "resume-1", command = "RESUME", target_id = 17, issued_by = 42 }))
 assert(Protocol.valid(resumeMessage))
 assert(not Protocol.valid(Protocol.message(Protocol.types.COMMAND, { id = 42 }, { command = "RETURN_HOME", target_id = 17, issued_by = 42 })))
+local jobPayload = { job_id = "job-1", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 10 } }
+local jobMessage = assert(Protocol.message(Protocol.types.JOB_ASSIGN, { id = 42 }, jobPayload))
+assert(Protocol.valid(jobMessage))
+assert(not Protocol.valid(Protocol.message(Protocol.types.JOB_ASSIGN, { id = 42 }, { job_id = "bad", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 0 } })))
+assert(Protocol.jobAckValid({ job_id = "job-1", target_id = 17, status = "ACCEPTED" }))
+assert(Protocol.jobStatusValid({ job_id = "job-1", job_type = "MINING", lifecycle = "RUNNING", distance = 10 }))
+assert(Protocol.jobResultValid({ job_id = "job-1", target_id = 17, status = "SUCCESS" }))
 
 local statusReader = MiningStatus.new({
   turtle = { getFuelLevel = function() return "unlimited" end },

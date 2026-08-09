@@ -5,7 +5,7 @@ function MiningNetwork.new(options)
     protocol = assert(options.protocol, "mining network requires protocol"), rednet = options.rednet,
     peripheral = options.peripheral, os = options.os or os, status = assert(options.status, "mining network requires status"),
     logger = options.logger, heartbeat_interval = options.heartbeat_interval or 15, opened = false, last_heartbeat = nil,
-    command_handler = options.command_handler,
+    command_handler = options.command_handler, job_handler = options.job_handler,
   }
 
   local function log(level, event, context)
@@ -60,6 +60,12 @@ function MiningNetwork.new(options)
       if not handled or type(ack) ~= "table" then return false end
       self:send(sender, self.protocol.types.COMMAND_ACK, ack)
       if type(commandResult) == "table" then self:send(sender, self.protocol.types.COMMAND_RESULT, commandResult) end
+    elseif message.type == self.protocol.types.JOB_ASSIGN then
+      if message.payload.issued_by ~= sender or not self.job_handler then return false end
+      local handled, ack, jobResult = pcall(self.job_handler, sender, message.payload)
+      if not handled or type(ack) ~= "table" then return false end
+      self:send(sender, self.protocol.types.JOB_ACK, ack)
+      if type(jobResult) == "table" then self:send(sender, self.protocol.types.JOB_RESULT, jobResult) end
     else return false end
     return true
   end

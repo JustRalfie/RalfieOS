@@ -14,6 +14,8 @@ lua tests/mining_network_tests.lua
 
 The suite uses deterministic fakes for turtle operations, inventory, filesystem, terminal, Rednet, modem discovery, GPS absence, and time. It does not require Minecraft. Rednet event/timer behavior used by Pocket UI and paused-worker waiting remains covered by the real-turtle smoke checklist because the unit tests use direct deterministic `receive` fakes.
 
+For Fleet Worker assignment, cancellation, restart, and physical movement validation, follow [FLEET_WORKER_SMOKE_TEST.md](FLEET_WORKER_SMOKE_TEST.md) inside CC:Tweaked.
+
 ## CC:Tweaked smoke checklist
 
 1. Run standalone mining without a modem or Pocket.

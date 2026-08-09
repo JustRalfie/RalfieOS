@@ -6,6 +6,7 @@ function MiningStatus.new(options)
     inventory = assert(options.inventory, "mining status requires inventory"),
     getState = assert(options.get_state, "mining status requires state reader"),
     getJob = options.get_job or function() return nil end,
+    getJobDetails = options.get_job_details or function() return nil end,
     getPendingCommand = options.get_pending_command or function() return nil end,
     gps = options.gps,
   }
@@ -18,10 +19,13 @@ function MiningStatus.new(options)
       local located, x, y, z = pcall(self.gps.locate, 0.1)
       if located and type(x) == "number" and type(y) == "number" and type(z) == "number" then position = { x = x, y = y, z = z } end
     end
-    return {
+    local details = self.getJobDetails()
+    local payload = {
       state = self.getState(), fuel_level = self.turtle.getFuelLevel(), inventory_used = occupied,
       inventory_slots = 16, position = position, job_id = self.getJob(), pending_command = self.getPendingCommand(), software_version = "0.1.0",
     }
+    if details then payload.job_type, payload.job_lifecycle, payload.job_distance = details.type, details.lifecycle, details.distance end
+    return payload
   end
 
   return status

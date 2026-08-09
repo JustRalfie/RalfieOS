@@ -5,6 +5,7 @@ local Protocol = {
     HELLO = "HELLO", HELLO_ACK = "HELLO_ACK", STATUS_REQUEST = "STATUS_REQUEST",
     STATUS = "STATUS", PING = "PING", PONG = "PONG", COMMAND = "COMMAND",
     COMMAND_ACK = "COMMAND_ACK", COMMAND_RESULT = "COMMAND_RESULT",
+    JOB_ASSIGN = "JOB_ASSIGN", JOB_ACK = "JOB_ACK", JOB_STATUS = "JOB_STATUS", JOB_RESULT = "JOB_RESULT",
   },
 }
 
@@ -14,6 +15,7 @@ for _, value in pairs(Protocol.types) do known[value] = true end
 local function identity(value)
   return type(value) == "table" and type(value.id) == "number" and value.id % 1 == 0
 end
+local function commandId(value) return type(value) == "string" and #value > 0 and #value <= 64 end
 
 function Protocol.statusValid(payload)
   if type(payload) ~= "table" or type(payload.turtle_id) ~= "number" or payload.turtle_id % 1 ~= 0 then return false end
@@ -23,11 +25,33 @@ function Protocol.statusValid(payload)
   if type(payload.inventory_slots) ~= "number" or payload.inventory_slots < payload.inventory_used or payload.inventory_slots % 1 ~= 0 then return false end
   if payload.position ~= nil and (type(payload.position) ~= "table" or type(payload.position.x) ~= "number" or type(payload.position.y) ~= "number" or type(payload.position.z) ~= "number") then return false end
   if payload.job_id ~= nil and type(payload.job_id) ~= "string" then return false end
+  if payload.job_type ~= nil and payload.job_type ~= "MINING" then return false end
+  if payload.job_lifecycle ~= nil and type(payload.job_lifecycle) ~= "string" then return false end
+  if payload.job_distance ~= nil and (type(payload.job_distance) ~= "number" or payload.job_distance < 1 or payload.job_distance % 1 ~= 0) then return false end
   if payload.pending_command ~= nil and payload.pending_command ~= "RETURN_HOME" and payload.pending_command ~= "UNLOAD" and payload.pending_command ~= "PAUSE" and payload.pending_command ~= "RESUME" then return false end
   return type(payload.software_version) == "string" and type(payload.protocol_version) == "number"
 end
 
-local function commandId(value) return type(value) == "string" and #value > 0 and #value <= 64 end
+function Protocol.jobAssignValid(payload)
+  return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and payload.target_id % 1 == 0 and
+    type(payload.issued_by) == "number" and payload.issued_by % 1 == 0 and type(payload.job) == "table" and payload.job.type == "MINING" and
+    type(payload.job.distance) == "number" and payload.job.distance > 0 and payload.job.distance % 1 == 0
+end
+function Protocol.jobAckValid(payload)
+  return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and
+    (payload.status == "ACCEPTED" or payload.status == "REJECTED" or payload.status == "BUSY" or payload.status == "INVALID") and
+    (payload.reason == nil or type(payload.reason) == "string")
+end
+function Protocol.jobStatusValid(payload)
+  return type(payload) == "table" and commandId(payload.job_id) and payload.job_type == "MINING" and type(payload.lifecycle) == "string" and
+    type(payload.distance) == "number" and payload.distance > 0 and payload.distance % 1 == 0
+end
+function Protocol.jobResultValid(payload)
+  return type(payload) == "table" and commandId(payload.job_id) and type(payload.target_id) == "number" and
+    (payload.status == "SUCCESS" or payload.status == "FAILED" or payload.status == "CANCELLED") and
+    (payload.reason == nil or type(payload.reason) == "string")
+end
+
 function Protocol.commandValid(payload)
   return type(payload) == "table" and commandId(payload.command_id) and (payload.command == "RETURN_HOME" or payload.command == "UNLOAD" or payload.command == "PAUSE" or payload.command == "RESUME") and
     type(payload.target_id) == "number" and payload.target_id % 1 == 0 and type(payload.issued_by) == "number" and payload.issued_by % 1 == 0
@@ -58,6 +82,10 @@ function Protocol.valid(message)
   if message.type == Protocol.types.COMMAND then return Protocol.commandValid(message.payload) end
   if message.type == Protocol.types.COMMAND_ACK then return Protocol.commandAckValid(message.payload) end
   if message.type == Protocol.types.COMMAND_RESULT then return Protocol.commandResultValid(message.payload) end
+  if message.type == Protocol.types.JOB_ASSIGN then return Protocol.jobAssignValid(message.payload) end
+  if message.type == Protocol.types.JOB_ACK then return Protocol.jobAckValid(message.payload) end
+  if message.type == Protocol.types.JOB_STATUS then return Protocol.jobStatusValid(message.payload) end
+  if message.type == Protocol.types.JOB_RESULT then return Protocol.jobResultValid(message.payload) end
   return true
 end
 

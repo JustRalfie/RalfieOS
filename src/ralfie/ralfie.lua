@@ -79,12 +79,13 @@ local function runMiner5x5()
   elseif not mined.ok then showResult("STOPPED", errorMessage(mined, "5x5 Tunnel Miner failed."), true)
   else showResult("DONE", "5x5 Tunnel Miner finished.", false) end
 end
+
 local function miningMenu()
   while true do
     local choice = menu.choose(context.ui, "Mining", {
       {
         id = "tunnel_miner",
-        label = "3x3 Tunnel Miner",
+        label = "Tunnel Miner",
         description = {
           "Digs a 3x3 tunnel and places torches.",
           "Returns home and dumps items into the",
@@ -99,10 +100,28 @@ local function miningMenu()
           "fluid safety, unloading, and recovery.",
         },
       },
+      {
+        id = "fleet_worker",
+        label = "Fleet Worker",
+        description = {
+          "Waits for a Pocket Computer to assign",
+          "one remote mining-distance job at a time.",
+        },
+      },
       { id = "back", label = "Back" },
     })
     if choice == "tunnel_miner" then runMiner() end
     if choice == "tunnel_miner_5x5" then runMiner5x5() end
+    if choice == "fleet_worker" then
+      local worker, loadError = safeLoad("ralfie.apps.miner.fleet_worker")
+      if not worker then showResult("ERROR", "Fleet Worker failed to load: " .. loadError, true)
+      else
+        context.ui:status("READY", "Fleet Worker waiting for jobs.", false)
+        local ran, result = xpcall(function() return worker.start(context) end, function(err) return tostring(err) end)
+        if not ran then showResult("ERROR", "Fleet Worker crashed: " .. result, true)
+        elseif not result.ok then showResult("STOPPED", errorMessage(result, "Fleet Worker stopped."), true) end
+      end
+    end
     if choice == "back" then return end
   end
 end

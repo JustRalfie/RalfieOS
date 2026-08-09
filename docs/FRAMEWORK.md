@@ -38,7 +38,9 @@ An application directory beneath `/ralfie/apps` must contain `manifest.lua` retu
 
 ## Launcher
 
-After a normal install or update, type `ralf` from the computer's root shell to open the RalfieOS menu. `RalfieOS` is also installed as a root-shell launch command. The menu currently exposes Mining, Update, and Exit only; Mining exposes Tunnel Miner and Back.
+After a normal install or update, type `ralf` from the computer's root shell to open the RalfieOS menu. `RalfieOS` is also installed as a root-shell launch command. The menu exposes Mining, Update, and Exit; Mining includes standalone miners and Fleet Worker when the installed manifest is version `0.2.0` or later.
+
+The updater downloads the package manifest from the configured GitHub `main` branch, then replaces the complete managed `/ralfie` runtime from that manifest. It preserves `/ralfie-data` only. Thus a source-tree change is not deployable until the same manifest and files have been published to `main`; compare the version printed by `RalfieOS → Update` with the intended release before diagnosing a local modem or menu issue.
 
 ## Update source contract
 

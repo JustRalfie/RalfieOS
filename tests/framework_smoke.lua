@@ -137,6 +137,33 @@ local updated = updater:apply("/source", "/installed")
 assert(updated.ok, updated.error and updated.error.message)
 assert(Fsx.read(fs, "/installed/main.lua") == "return 'updated'")
 
+local deploymentManifest = dofile("src/ralfie/manifest.lua")
+local requiredDeploymentFiles = {
+  "apps/miner/fleet_worker.lua", "ralfie.lua", "services/platform/mining_protocol.lua",
+  "services/platform/mining_network.lua", "pocket/main.lua", "launchers/mining_command.lua",
+}
+local declared = {}
+for _, path in ipairs(deploymentManifest.files) do declared[path] = true; Fsx.write(fs, "/fleet-source/" .. path, "new:" .. path) end
+for _, path in ipairs(requiredDeploymentFiles) do assert(declared[path], "deployment manifest is missing " .. path) end
+local launchers = {}
+for _, launcher in ipairs(deploymentManifest.launchers) do launchers[launcher.target] = launcher.source end
+assert(launchers["/RalfieOS.lua"] == "launchers/RalfieOS.lua")
+assert(launchers["/ralfie-mining-command.lua"] == "launchers/mining_command.lua")
+local deploymentUpdater = Updating.new({
+  filesystem = fs, fsx = Fsx, result = Result,
+  module_loader = { loadPath = function() return Result.ok(deploymentManifest) end },
+})
+Fsx.write(fs, "/fleet-installed/ralfie.lua", "old mining menu: Tunnel Miner, Back")
+local fleetUpdated = deploymentUpdater:apply("/fleet-source", "/fleet-installed")
+assert(fleetUpdated.ok, fleetUpdated.error and fleetUpdated.error.message)
+assert(Fsx.read(fs, "/fleet-installed/ralfie.lua") == "new:ralfie.lua", "update must replace a stale managed menu")
+assert(Fsx.read(fs, "/fleet-installed/apps/miner/fleet_worker.lua") == "new:apps/miner/fleet_worker.lua", "update must install Fleet Worker")
+assert(Fsx.read(fs, "/fleet-installed/services/platform/mining_protocol.lua") == "new:services/platform/mining_protocol.lua")
+assert(Fsx.read(fs, "/fleet-installed/pocket/main.lua") == "new:pocket/main.lua")
+local fleetFresh = deploymentUpdater:apply("/fleet-source", "/fleet-fresh")
+assert(fleetFresh.ok, fleetFresh.error and fleetFresh.error.message)
+assert(Fsx.read(fs, "/fleet-fresh/apps/miner/fleet_worker.lua") == "new:apps/miner/fleet_worker.lua")
+
 local remoteManifest = "return { version = 'remote-test', api_version = 1, files = { 'payload.lua', 'launchers/ralf.lua' }, launchers = { { source = 'launchers/ralf.lua', target = '/ralf.lua' } } }"
 local remoteFiles = {
   ["https://example.invalid/src/ralfie/manifest.lua"] = remoteManifest,
