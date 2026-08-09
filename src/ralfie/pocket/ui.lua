@@ -1,5 +1,5 @@
 local Ui = {}
-Ui.VERSION = "0.3.6"
+Ui.VERSION = "0.3.7"
 
 function Ui.isBackKey(key) return key == keys.b or key == keys.backspace end
 
@@ -123,14 +123,24 @@ function Ui.update(terminal, fleet, updateBatch, selected)
   for _, miner in ipairs(fleet:list()) do
     local result = updateBatch and updateBatch.results[miner.id]
     local pending = updateBatch and updateBatch.pending[miner.id]
+    local targeted = not updateBatch or not updateBatch.targets or updateBatch.targets[miner.id]
     local text
     if pending then
-      text = pending.stage == "DOWNLOADING" and ("Downloading " .. tostring(pending.completed_files or 0) .. "/" .. tostring(pending.total_files or "?")) or (pending.stage or "Waiting")
+      if pending.stage == "DOWNLOADING" then
+        writeLine(terminal, line, miner.label or ("#" .. miner.id)); line = line + 1
+        writeLine(terminal, line, "Downloading"); line = line + 1
+        local total, completed = pending.total_files or 0, pending.completed_files or 0
+        local width = math.max(1, math.min(10, select(1, terminal.getSize()) - 12))
+        local filled = total > 0 and math.floor(width * completed / total) or 0
+        writeLine(terminal, line, "[" .. string.rep("#", filled) .. string.rep("-", width - filled) .. "] " .. completed .. "/" .. (total > 0 and total or "?")); line = line + 1
+        text = nil
+      elseif pending.stage == "WAITING" or pending.stage == "SENT" then text = "Waiting for worker..."
+      else text = pending.stage or "Waiting for worker..." end
     elseif result then
       text = result.status
       if result.status == "VERIFIED" then text = "Verified v" .. tostring(result.version or updateBatch.target_version) end
-    else text = miner.online and "Waiting" or "Offline" end
-    writeLine(terminal, line, (miner.label or ("#" .. miner.id)) .. "  " .. text); line = line + 1
+    else text = targeted and "Waiting for worker..." or (miner.online and "Not targeted" or "Offline") end
+    if text then writeLine(terminal, line, (miner.label or ("#" .. miner.id)) .. "  " .. text); line = line + 1 end
   end
   local totals = { verified = 0, busy = 0, offline = 0, failed = 0 }
   for _, result in pairs((updateBatch and updateBatch.results) or {}) do
@@ -140,6 +150,8 @@ function Ui.update(terminal, fleet, updateBatch, selected)
     elseif result.status == "FAILED" or result.status == "RESULT UNKNOWN" then totals.failed = totals.failed + 1 end
   end
   local height = select(2, terminal.getSize())
+  local complete, total = updateBatch and updateBatch.remote_complete or 0, updateBatch and updateBatch.remote_total or 0
+  writeLine(terminal, height - 3, "Remote: " .. tostring(complete) .. "/" .. tostring(total) .. " complete")
   if updateBatch and updateBatch.resolved then writeLine(terminal, height - 2, totals.verified .. " verified  " .. totals.busy .. " busy  " .. totals.offline .. " offline") end
   writeLine(terminal, height - 1, updateBatch and updateBatch.resolved and "Enter Update Pocket  [B] Back" or "[B] Back")
   writeLine(terminal, height, updateBatch and updateBatch.resolved and "Remote results resolved" or "Requests continue in background")

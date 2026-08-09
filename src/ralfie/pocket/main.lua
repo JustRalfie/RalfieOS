@@ -1,6 +1,7 @@
 local root = "/ralfie"
 local Protocol = dofile(root .. "/services/platform/mining_protocol.lua")
 local Fleet = dofile(root .. "/pocket/fleet.lua")
+local UpdateBatch = dofile(root .. "/pocket/update_batch.lua")
 local Network = dofile(root .. "/pocket/network.lua")
 local Ui = dofile(root .. "/pocket/ui.lua")
 local manifest = dofile(root .. "/manifest.lua")
@@ -26,22 +27,10 @@ local function redraw()
   else Ui.render(term, fleet, selected) end
 end
 
-local function updatesResolved(batch)
-  if not batch or next(batch.pending) ~= nil then return false end
-  for _, result in pairs(batch.results) do
-    if result.status == "UPDATED" or result.status == "ACCEPTED" or result.status == "UPDATING" then return false end
-  end
-  return true
-end
-
 local function observeUpdateStatus(id)
   if not updateBatch then return end
-  local result, miner = updateBatch.results[id], fleet.miners[id]
-  local expected = result and (result.version or updateBatch.target_version)
-  if result and result.status == "UPDATED" and miner and miner.status and miner.status.software_version == expected then
-    result.status, result.version = "VERIFIED", miner.status.software_version
-  end
-  updateBatch.resolved = updatesResolved(updateBatch)
+  local miner = fleet.miners[id]
+  if miner and miner.status then UpdateBatch.observeVersion(updateBatch, id, miner.status.software_version) end
 end
 local function finishFleetUpdate()
   if not updateBatch or updateBatch.local_started then return end
@@ -56,23 +45,12 @@ local function finishFleetUpdate()
   end
 end
 local function requestFleetUpdate()
-  updateBatch = { pending = {}, results = {}, target_version = manifest.version, resolved = false }
+  updateBatch = UpdateBatch.new(manifest.version)
   local issuedBy = network:identity().id
-  for _, miner in ipairs(fleet:list()) do
-    if miner.online then
-      local state = Ui.userState(miner)
-      if state == "READY" or state == "PAUSED" then
-        local requestId = "update-" .. tostring(os.epoch("utc")) .. "-" .. miner.id
-        updateBatch.pending[miner.id] = { id = requestId, sent_at = now(), last_seen = now(), stage = "Waiting" }
-        if not network:send(miner.id, Protocol.types.DEVICE_UPDATE_REQUEST, { request_id = requestId, target_id = miner.id, issued_by = issuedBy }) then
-          updateBatch.pending[miner.id] = nil; updateBatch.results[miner.id] = { status = "FAILED", reason = "could not send request" }
-        end
-      else
-        updateBatch.results[miner.id] = { status = "BUSY", reason = "worker is " .. state:lower() }
-      end
-    else updateBatch.results[miner.id] = { status = "OFFLINE" } end
-  end
-  updateBatch.resolved = updatesResolved(updateBatch)
+  local requestedAt = now()
+  UpdateBatch.request(updateBatch, fleet:list(), Ui.userState, function(id, requestId)
+    return network:send(id, Protocol.types.DEVICE_UPDATE_REQUEST, { request_id = requestId, target_id = id, issued_by = issuedBy })
+  end, issuedBy, requestedAt, function(miner) return "update-" .. tostring(os.epoch("utc")) .. "-" .. miner.id end)
 end
 local function receive(sender, message)
   local time = now()
@@ -87,18 +65,18 @@ local function receive(sender, message)
     local pending = updateBatch.pending[message.sender.id]
     if pending and pending.id == message.payload.request_id then
       pending.stage, pending.completed_files, pending.total_files, pending.last_seen = message.payload.stage, message.payload.completed_files, message.payload.total_files, time
+      UpdateBatch.progress(updateBatch, message.sender.id, pending)
     end
   end
   if updateBatch and message.type == Protocol.types.DEVICE_UPDATE_RESULT then
     local pending = updateBatch.pending[message.sender.id]
     if pending and pending.id == message.payload.request_id then
-      updateBatch.pending[message.sender.id] = nil
       if message.payload.status == "SUCCESS" and message.payload.version then updateBatch.target_version = message.payload.version end
-      updateBatch.results[message.sender.id] = {
+      UpdateBatch.result(updateBatch, message.sender.id, {
         status = message.payload.status == "SUCCESS" and "UPDATED" or message.payload.status,
         reason = message.payload.reason, restart_required = message.payload.restart_required, version = message.payload.version,
-        verified_by = message.payload.status == "SUCCESS" and (time + 60) or nil,
-      }
+        verification_required = message.payload.status == "SUCCESS", verified_by = message.payload.status == "SUCCESS" and (time + 60) or nil,
+      })
       observeUpdateStatus(message.sender.id)
     end
   end
@@ -162,12 +140,12 @@ while true do
     if math.floor(time) % 30 == 0 then network:broadcast(Protocol.types.HELLO) end
     if updateBatch and not updateBatch.local_started then
       for id, pending in pairs(updateBatch.pending) do
-        if time - pending.last_seen >= 45 then updateBatch.pending[id] = nil; updateBatch.results[id] = { status = "RESULT UNKNOWN", reason = "update response timed out" } end
+        if time - pending.last_seen >= 45 then UpdateBatch.result(updateBatch, id, { status = "RESULT UNKNOWN", reason = "update response timed out" }) end
       end
       for _, result in pairs(updateBatch.results) do
         if result.status == "UPDATED" and result.verified_by and time >= result.verified_by then result.status, result.reason = "RESULT UNKNOWN", "updated device did not report the target version" end
       end
-      updateBatch.resolved = updatesResolved(updateBatch)
+      UpdateBatch.refresh(updateBatch)
     end
     timer = os.startTimer(1)
   elseif event == "key" then

@@ -49,10 +49,11 @@ for _, message in ipairs(failedSent) do if message.kind == Protocol.types.JOB_RE
 assert(failed == 1)
 assert(failedWorker:handleJob(42, { job_id = "new-job", target_id = 17, issued_by = 42, job = { type = "MINING", distance = 1 } }).status == "BUSY")
 
-local updateWorker = select(1, environment(job, nil, Result.ok({ version = "0.3.6" })))
+local updateWorker, updateSent = environment(job, nil, Result.ok({ version = "0.3.6" }))
 local updateRequest = { request_id = "update-1", target_id = 17, issued_by = 42 }
 local updated = updateWorker:handleUpdate(42, updateRequest)
 assert(updated.status == "SUCCESS" and updated.restart_required == true and updated.version == "0.3.6")
+assert(updateSent[#updateSent].kind == Protocol.types.DEVICE_UPDATE_PROGRESS and updateSent[#updateSent].payload.stage == "ACCEPTED", "accepted updates must report a visible lifecycle state")
 assert(updateWorker:handleUpdate(42, updateRequest) == updated, "duplicate update requests must replay the saved result")
 updateWorker.state = "RUNNING"
 assert(updateWorker:handleUpdate(42, { request_id = "update-busy", target_id = 17, issued_by = 42 }).status == "BUSY")

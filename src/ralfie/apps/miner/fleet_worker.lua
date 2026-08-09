@@ -77,6 +77,7 @@ function FleetWorker.new(context, options)
     elseif self.state ~= "READY" and self.state ~= "PAUSED" then
       response.status, response.reason = "BUSY", "worker is " .. tostring(self.state):lower()
     else
+      network:send(sender, Protocol.types.DEVICE_UPDATE_PROGRESS, { request_id = payload.request_id, target_id = payload.target_id, stage = "ACCEPTED" })
       local outcome = performUpdate(sender, payload)
       if outcome and outcome.ok then response.status, response.restart_required, response.version = "SUCCESS", true, outcome.value and outcome.value.version
       else response.status, response.reason = "FAILED", safeReason(outcome, "update failed") end

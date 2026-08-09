@@ -1,5 +1,5 @@
 return {
-  version = "0.3.6",
+  version = "0.3.7",
   api_version = 1,
   launchers = {
     { source = "launchers/ralf.lua", target = "/ralf.lua" },
@@ -43,6 +43,7 @@ return {
     "interfaces/terminal/menu.lua",
     "interfaces/terminal/miner_dashboard.lua",
     "pocket/fleet.lua",
+    "pocket/update_batch.lua",
     "pocket/network.lua",
     "pocket/ui.lua",
     "pocket/main.lua",
